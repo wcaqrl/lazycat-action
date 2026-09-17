@@ -16,6 +16,21 @@ Current scope:
 - Milestone 2: stable, beta, date, nightly, and custom OCI checks; LazyCat, direct, and mirror delivery; pull requests; Artifacts; tags; Releases; Release Assets.
 - Milestone 3: LazyCat official developer-platform submission, MiaoMiao private-store submission, complete source-build examples, and the repository Agent Skill.
 
+## Centrally managed applications
+
+This repository can own the complete LazyCat packaging layer for applications
+whose upstream repositories know nothing about LazyCat. Each application keeps
+its `package.yml`, build configuration, Manifest, icon, monitoring rules, and
+store metadata under `targets/<application>/`. A workflow in this repository
+periodically inspects the upstream public OCI repository, copies a new image to
+the official LazyCat registry, updates the managed files, builds and validates
+the LPK, and submits it for review.
+
+The first managed target is [`targets/poster`](targets/poster). Its upstream
+repository only publishes `ghcr.io/wcaqrl/poster`; all LazyCat-specific files
+and the monitoring workflow live here. Add `LZC_API_TOKEN` as an Actions Secret
+in this repository, not in the upstream application repository.
+
 ## Choose the interface
 
 Both public entry points are supported and follow the floating `v1` release tag:

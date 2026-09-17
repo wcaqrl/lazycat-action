@@ -16,6 +16,12 @@ Action 使用 [`github.com/lib-x/lzc-toolkit-go`](https://github.com/lib-x/lzc-t
 - Milestone 2：stable、beta、date、nightly 和 custom OCI 检查；LazyCat、direct 和 mirror 镜像交付；Pull Request；Artifact；tag；Release；Release Asset。
 - Milestone 3：懒猫官方开发者平台提交、喵喵私有商店提交、完整源码构建示例和仓库内 Agent Skill。
 
+## 集中管理应用
+
+本仓库可以集中维护懒猫应用的完整打包层，源项目无需知道自己会被制作成懒猫应用。每个应用的 `package.yml`、构建配置、Manifest、图标、镜像监控规则和商店资料统一放在 `targets/<应用>/`。本仓库的工作流定期检查上游公开 OCI 镜像；发现新版本后，将镜像转存至懒猫官方仓库，更新受管文件，构建并校验 LPK，最后提交审核。
+
+首个受管目标是 [`targets/poster`](targets/poster)。它的上游项目只负责发布 `ghcr.io/wcaqrl/poster`，所有懒猫专用文件和监控工作流都位于本仓库。`LZC_API_TOKEN` 应配置为本仓库的 Actions Secret，无需配置到上游应用仓库。
+
 ## 选择使用方式
 
 两个公开入口都受支持，并共同跟随浮动的 `v1` 发布标签：
