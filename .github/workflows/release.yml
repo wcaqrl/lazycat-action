@@ -1,0 +1,96 @@
+name: Release Action
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  release:
+    if: github.ref_name != 'v1'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify Action bootstrap version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          configured="$(sed -n 's/^[[:space:]]*LAZYCAT_ACTION_VERSION:[[:space:]]*//p' action.yml)"
+          if [[ -z "${configured}" || "${configured}" != "${RELEASE_TAG}" ]]; then
+            echo "action.yml LAZYCAT_ACTION_VERSION (${configured:-missing}) must equal release tag ${RELEASE_TAG}" >&2
+            exit 1
+          fi
+          mapfile -t workflow_refs < <(sed -n 's|^[[:space:]]*uses:[[:space:]]*wcaqrl/lazycat-action@\([^[:space:]]*\)[[:space:]]*$|\1|p' .github/workflows/lazycat.yml)
+          if (( ${#workflow_refs[@]} == 0 )); then
+            echo ".github/workflows/lazycat.yml must invoke the released composite Action" >&2
+            exit 1
+          fi
+          for workflow_ref in "${workflow_refs[@]}"; do
+            if [[ "${workflow_ref}" != "v1" ]]; then
+              echo ".github/workflows/lazycat.yml Action ref ${workflow_ref} must use the floating v1 tag" >&2
+              exit 1
+            fi
+          done
+
+      - name: Set up QEMU for arm64 smoke test
+        uses: docker/setup-qemu-action@v4
+        with:
+          platforms: arm64
+
+      - name: Install Syft for SBOM generation
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v7
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test released host binaries
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          scripts/verify-release-artifacts.sh
+          root="$(mktemp -d)"
+          trap 'rm -rf "${root}"' EXIT
+          for arch in amd64 arm64; do
+            directory="${root}/${arch}"
+            mkdir -p "${directory}"
+            tar -xzf "dist/lazycat-action_linux_${arch}.tar.gz" -C "${directory}"
+            output="$("${directory}/lazycat-action" --version)"
+            grep -Fq "\"actionVersion\":\"${RELEASE_TAG}\"" <<<"${output}"
+            grep -Fq '"targetPlatform":"linux/amd64"' <<<"${output}"
+          done
+
+      - name: Attest release archives
+        uses: actions/attest-build-provenance@v4
+        with:
+          subject-path: dist/lazycat-action_linux_*.tar.gz
+
+      - name: Update floating v1 tag
+        if: startsWith(github.ref_name, 'v1.')
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag --force --annotate --message "LazyCat GitHub Action v1" v1 "${RELEASE_TAG}^{commit}"
+          git push origin refs/tags/v1 --force

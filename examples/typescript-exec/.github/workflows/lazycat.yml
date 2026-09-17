@@ -1,0 +1,16 @@
+name: Publish TypeScript Exec LPK
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  lazycat:
+    uses: wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1
+    with:
+      operation: auto
+      config: .github/lazycat-action.yml
+      toolchains: node
+      node-version: 22.x
+      node-package-manager: npm

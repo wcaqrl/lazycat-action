@@ -1,0 +1,11 @@
+# Source: lazycat-contrib/lazycat-mcp@984263adaf0cd664ab6e19135f4637be25437076
+package: cloud.lazycat.app.czyt.lazycat-mcp
+version: 2026.07.08.0050
+name: LazyCat MCP
+description: LazyCat MCP aggregation service
+min_os_version: 1.6.0
+locales:
+  zh:
+    name: 懒猫 MCP
+  en:
+    name: LazyCat MCP

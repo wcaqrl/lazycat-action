@@ -1,0 +1,11 @@
+application:
+  subdomain: image-fixture
+  routes:
+    - /=http://web:8080/
+
+services:
+  db:
+    image: postgres:17
+  web:
+    # upstream: ghcr.io/acme/example-web:v1.0.0
+    image: registry.lazycat.cloud/acme/example-web:old

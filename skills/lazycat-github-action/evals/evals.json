@@ -1,0 +1,149 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "multi-service-web-version-source",
+      "prompt": "Configure scheduled updates for a manifest with db and web services; web is the visible application and drives versions.",
+      "mustInclude": ["version_source", "image: web", "target: service", "service: web", "strategy: pull"],
+      "mustNotInclude": ["service: db", "target: application"]
+    },
+    {
+      "id": "nightly-amd64",
+      "prompt": "Track a mutable nightly container tag on an ARM64 self-hosted runner.",
+      "mustInclude": ["channel: nightly", "tag_regex", "linux/amd64", "runner"],
+      "mustNotInclude": ["LAZYCAT_TARGET_ARCH=arm64"]
+    },
+    {
+      "id": "mirror-private-only",
+      "prompt": "Use an explicit Docker accelerator and publish only to a MiaoMiao private store.",
+      "mustInclude": ["mode: mirror", "enabled: false", "enabled: true", "APPSTORE_TOKEN"],
+      "mustNotInclude": ["official:\n    enabled: true"]
+    },
+    {
+      "id": "go-exec-arm-runner",
+      "prompt": "Build a Go Exec application on Linux ARM64 and publish an x64 LPK from tags.",
+      "mustInclude": ["toolchains: go", "GOOS", "GOARCH", "amd64", "tags"],
+      "mustNotInclude": ["GOARCH=arm64"]
+    },
+    {
+      "id": "typescript-static-release",
+      "prompt": "Build a service-free TypeScript static Web application when a GitHub Release is published.",
+      "mustInclude": ["type: git", "toolchains: node", "release", "file:///lzcapp/pkg/content"],
+      "mustNotInclude": ["images:"]
+    },
+    {
+      "id": "reject-official-direct",
+      "prompt": "Review a configuration that enables the official store while using direct delivery.",
+      "mustInclude": ["invalid", "lazycat", "official"],
+      "mustNotInclude": ["configuration is valid"]
+    },
+    {
+      "id": "dual-store-version-deduplication",
+      "prompt": "Configure official and MiaoMiao publishing so an already-online equal package version is not submitted again, and the private app requires group codes.",
+      "mustInclude": ["skip_if_version_exists: true", "PRIVATE_STORE_GROUP_CODES", "GitHub Secret", "onlineVersion"],
+      "mustNotInclude": ["private-group-codes:", "PRIVATE_STORE_GROUP_CODES: ABC123"]
+    },
+    {
+      "id": "automatic-workflow-generation",
+      "prompt": "Inspect this LazyCat repository and automatically create the GitHub Actions files needed for scheduled image updates and release publishing. Do not just explain what I should write.",
+      "mustInclude": [".github/lazycat-action.yml", ".github/workflows/", "actionlint", "secrets"],
+      "mustNotInclude": ["Here is an example only", "I cannot edit files"]
+    },
+    {
+      "id": "release-store-reconciliation",
+      "prompt": "The versioned GitHub Release LPK already exists. Reconcile an official store that is missing this version while the private store is already current.",
+      "mustInclude": ["<package-id>-v<version>.lpk", "sha256", "official", "skip"],
+      "mustNotInclude": ["rebuild", "use any .lpk", "publish both stores unconditionally"]
+    },
+    {
+      "id": "named-version-template-groups",
+      "prompt": "Map image tag 20260603.01 to valid SemVer 20260603.1.0 without a repository-specific script.",
+      "mustInclude": ["(?P<version>", "(?P<build>", "{version}.{build}.0", "fail closed"],
+      "mustNotInclude": ["custom shell script", "0.0.0-nightly"]
+    },
+    {
+      "id": "date-tag-leading-zero-normalization",
+      "prompt": "A GHCR image publishes date tags such as 20260626 and 20260101. Map them to strict SemVer without failing on zero-padded month or day fields.",
+      "mustInclude": ["channel: date", "tag_regex: '^[0-9]{8}$'", "(?P<month>", "(?P<day>", "{version}.{month}.{day}", "2026.6.26"],
+      "mustNotInclude": ["2026.06.26", "custom shell script", "allow_downgrade: true"]
+    },
+    {
+      "id": "private-name-fallback",
+      "prompt": "A MiaoMiao application already exists and is searchable by application name but not package ID. Configure publishing without APP_ID.",
+      "mustInclude": ["stores.private.name", "/api/v1/apps/by-name", "can upload", "404"],
+      "mustNotInclude": ["reuse any same-name app", "APP_ID is required"]
+    },
+    {
+      "id": "image-version-downgrade-guard",
+      "prompt": "Creation-time image sorting picked rebuilt tag 18.0 while package.yml is 19.0.0. Prevent accidental rollback but preserve intentional rollback support.",
+      "mustInclude": ["allow_downgrade: false", "VERSION_DOWNGRADE_BLOCKED", "before", "explicit"],
+      "mustNotInclude": ["always use created", "silently downgrade", "allow_downgrade: true by default"]
+    },
+    {
+      "id": "rust-protobuf-toolchain",
+      "prompt": "A Rust and Node source build fails on Tags because protoc is missing, while Ubuntu's protoc rejects Protobuf Edition 2023. Fix automation without changing source semantics.",
+      "mustInclude": ["GitHub Release", "SHA256", "protoc --version", "shared buildscript", "Edition 2023"],
+      "mustNotInclude": ["change to proto3", "modify Rust source", "PR-only setup"]
+    },
+    {
+      "id": "official-retry-and-failure-isolation",
+      "prompt": "Configure safe official-store retries and explain how a dual-store workflow handles an official HTTP 400 after the private store succeeds.",
+      "mustInclude": ["retry", "enabled: false", "429", "5xx", "review is not replayed", "400", "warning", "message", "container_name"],
+      "mustNotInclude": ["retry every 4xx", "print the response body", "fail the private publication"]
+    },
+    {
+      "id": "official-review-newer-candidate-continuation",
+      "prompt": "An official review for version 0.10.55 is pending, but the version-source image now selects 0.10.56. Configure automatic direct publication to submit the newer candidate, while still pausing when the review already covers the selected candidate.",
+      "mustInclude": ["continue_if_newer_version: true", "default", "equal", "newer", "older", "before", "same selected candidate", "Git version source", "fail closed"],
+      "mustNotInclude": ["dry-run image check", "always pause", "copy mirror image", "continue_if_newer_version: false by default"]
+    },
+    {
+      "id": "updated-tag-and-target-architecture",
+      "prompt": "Docker Hub updated v1.2.15 after v1.2.26. Prefer the most recently updated tag and target a future arm64 LazyCat device without changing defaults for other repositories.",
+      "mustInclude": ["sort: updated", "last_updated", "project.target_arch", "arm64", "allow_downgrade: false"],
+      "mustNotInclude": ["sort: created", "arm64 by default", "disable downgrade protection"]
+    },
+    {
+      "id": "mutable-latest-patch-bump",
+      "prompt": "The official image publishes only latest. Automatically increment the package patch version when its amd64 digest changes, publish both stores, and avoid duplicate releases when it does not change.",
+      "mustInclude": ["bump: patch", "channel: custom", "sort: created", "tag_regex: '^latest$'", "digest", "skip_if_version_exists: true", "mode: lazycat"],
+      "mustNotInclude": ["allow_downgrade: true", "bump on every run", "mode: direct", "version_regex"]
+    },
+    {
+      "id": "node24-action-runtime",
+      "prompt": "Generate a caller-owned composite workflow that checks out the repository and configures Node without GitHub's Node.js 20 deprecation warning.",
+      "mustInclude": ["Node.js 24", "actions/checkout@v7", "actions/setup-node@v7"],
+      "mustNotInclude": ["actions/checkout@v4", "actions/setup-node@v4"]
+    },
+    {
+      "id": "pat-default-legacy-opt-in",
+      "prompt": "Generate official-store authentication for a new caller with a working LZC_API_TOKEN PAT. The repository also has an unused historical LAZYCAT_TOKEN secret.",
+      "mustInclude": ["LZC_API_TOKEN", "PAT", "legacy-only"],
+      "mustNotInclude": ["LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}", "map both", "secrets: inherit"]
+    },
+    {
+      "id": "evolvable-version-selection",
+      "prompt": "The current upstream image is 2.2.0. Generate a scheduled automatic update rule that will continue finding future stable releases instead of pinning the current tag.",
+      "mustInclude": ["release family", "channel: stable", "sort: semver", "tag_regex", "future"],
+      "mustNotInclude": ["tag_regex: '^2\\.2\\.0$'", "tag_regex: \"^2\\\\.2\\\\.0$\"", "pin 2.2.0"]
+    },
+    {
+      "id": "major-line-version-selection",
+      "prompt": "Track only stable v2 image releases. The current tag is v2.2.0, and later v2 patches and minors should update automatically while v3 must be ignored.",
+      "mustInclude": ["channel: stable", "sort: semver", "^v?2\\.\\d+\\.\\d+$", "future"],
+      "mustNotInclude": ["^v?2\\.2\\.0$", "include v3", "sort: created"]
+    },
+    {
+      "id": "tag-filter-version-mapping-separation",
+      "prompt": "Upstream tags look like release-20260807.03. Select the whole release family and map it to SemVer 20260807.3.0.",
+      "mustInclude": ["tag_regex", "version_regex", "(?P<version>", "(?P<build>", "version_template", "{version}.{build}.0"],
+      "mustNotInclude": ["tag_regex: '^release-20260807\\.03$'", "custom script", "current tag only"]
+    },
+    {
+      "id": "mixed-weekly-lts-version-selection",
+      "prompt": "A Docker Hub repository mixes plain two-part weekly tags such as 2.578, three-part LTS tags such as 2.568.2, JDK-suffixed variants, and latest. The app tracks weekly releases and package.yml is 2.578.0. Fix default stable selecting the lower LTS version and CONFIG_INVALID after switching to updated sorting.",
+      "mustInclude": ["channel: custom", "sort: semver", "tag_regex", "version_regex", "(?P<version>", "version_template", "{version}.0", "allow_downgrade: false"],
+      "mustNotInclude": ["sort: created", "channel: nightly", "version_template: '{version}'", "tag_regex: '^2\\.578$'"]
+    }
+  ]
+}

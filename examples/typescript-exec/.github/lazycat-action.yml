@@ -1,0 +1,17 @@
+version: 1
+project:
+  output: dist/application.lpk
+update:
+  strategy: publish
+  version_source:
+    type: git
+build:
+  toolchains:
+    - kind: node
+      version: 22.x
+  run_buildscript: true
+stores:
+  official:
+    enabled: false
+  private:
+    enabled: false

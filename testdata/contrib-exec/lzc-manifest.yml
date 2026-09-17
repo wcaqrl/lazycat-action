@@ -1,0 +1,7 @@
+# Source: lazycat-contrib/lazycat-mcp@984263adaf0cd664ab6e19135f4637be25437076
+application:
+  subdomain: lazycat-mcp
+  upstreams:
+    - location: /
+      backend: http://127.0.0.1:3000/
+      backend_launch_command: /lzcapp/pkg/content/lazycat-mcp

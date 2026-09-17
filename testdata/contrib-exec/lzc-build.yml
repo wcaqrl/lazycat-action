@@ -1,0 +1,3 @@
+# Source: lazycat-contrib/lazycat-mcp@984263adaf0cd664ab6e19135f4637be25437076
+manifest: ./lzc-manifest.yml
+contentdir: ./content

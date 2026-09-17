@@ -1,0 +1,37 @@
+version: 2
+
+project_name: lazycat-action
+
+builds:
+  - id: lazycat-action
+    main: ./cmd/lazycat-action
+    binary: lazycat-action
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X github.com/wcaqrl/lazycat-action/internal/version.ActionVersion={{.Tag}}
+
+archives:
+  - id: binaries
+    ids:
+      - lazycat-action
+    formats:
+      - tar.gz
+    name_template: lazycat-action_{{ .Os }}_{{ .Arch }}
+    files:
+      - none*
+
+checksum:
+  name_template: checksums.txt
+
+sboms:
+  - artifacts: archive
+
+changelog:
+  use: git
+  sort: asc

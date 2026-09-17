@@ -1,0 +1,16 @@
+package: cloud.lazycat.action.fixture
+version: 1.2.3
+name: Action Fixture
+description: Static fixture
+permissions:
+  required:
+    - lightos.manage
+  optional:
+    - user.notify
+locales:
+  zh:
+    name: Action Fixture
+    description: Static fixture
+  en:
+    name: Action Fixture
+    description: Static fixture

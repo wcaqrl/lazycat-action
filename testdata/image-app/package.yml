@@ -1,0 +1,12 @@
+package: cloud.lazycat.action.image-fixture
+version: 1.0.0
+name: Image Action Fixture
+description: Two-service fixture with an explicit web version source
+min_os_version: 1.5.0
+locales:
+  zh:
+    name: 镜像自动化测试应用
+    description: 显式选择 Web 服务作为版本来源的双服务测试应用
+  en:
+    name: Image Action Fixture
+    description: Two-service fixture with an explicit web version source

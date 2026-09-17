@@ -1,0 +1,2 @@
+buildscript: ./scripts/build.sh
+contentdir: ./content

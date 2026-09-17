@@ -1,0 +1,31 @@
+version: 1
+
+project:
+  root: .
+  build_config: lzc-build.yml
+  package_file: package.yml
+  output: dist/image-app.lpk
+
+update:
+  strategy: pull
+  version_source:
+    type: image
+    image: web
+
+build:
+  run_buildscript: false
+
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/example-web
+    channel: stable
+    delivery:
+      mode: lazycat
+
+stores:
+  official:
+    enabled: false
+  private:
+    enabled: false

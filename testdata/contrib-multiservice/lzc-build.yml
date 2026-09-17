@@ -1,0 +1,3 @@
+# Source: lazycat-contrib/new-api-lzcapp@524474a15fdb13d7aee0738cc7480be6c0447dea
+manifest: ./lzc-manifest.yml
+contentdir: ./content

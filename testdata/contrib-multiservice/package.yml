@@ -1,0 +1,11 @@
+# Source: lazycat-contrib/new-api-lzcapp@524474a15fdb13d7aee0738cc7480be6c0447dea
+package: community.lazycat.app.new-api
+version: 1.0.0-rc.20
+name: New API
+description: AI model interface management and distribution system
+min_os_version: 1.5.0
+locales:
+  zh:
+    name: New API
+  en:
+    name: New API

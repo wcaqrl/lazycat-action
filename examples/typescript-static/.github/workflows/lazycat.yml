@@ -1,0 +1,17 @@
+name: Publish TypeScript static LPK
+on:
+  release:
+    types: [published]
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  lazycat:
+    uses: wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1
+    with:
+      operation: auto
+      config: .github/lazycat-action.yml
+      changelog: ${{ github.event.release.body }}
+      toolchains: node
+      node-version: 22.x
+      node-package-manager: npm

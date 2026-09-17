@@ -1,0 +1,145 @@
+name: LazyCat GitHub Action
+description: Build, verify, update, and publish LazyCat LPK applications from GitHub Actions.
+author: wcaqrl
+
+branding:
+  icon: package
+  color: orange
+
+inputs:
+  operation:
+    description: auto, check, build, publish-official, or publish-private; auto uses the event and configured version source; check rejects tag and release events.
+    required: false
+    default: auto
+  config:
+    description: Path to the LazyCat Action configuration file.
+    required: false
+    default: .github/lazycat-action.yml
+  image-id:
+    description: Optional explicitly configured image ID to process.
+    required: false
+    default: ""
+  version:
+    description: Application SemVer, optionally prefixed with v.
+    required: false
+    default: ""
+  changelog:
+    description: Changelog used by publish operations.
+    required: false
+    default: ""
+  lpk-path:
+    description: Existing LPK path used by publish operations.
+    required: false
+    default: ""
+  download-url:
+    description: GitHub Release Asset URL used by private-store publishing.
+    required: false
+    default: ""
+  sha256:
+    description: Confirmed GitHub Release Asset SHA256 required by publish operations.
+    required: false
+    default: ""
+  dry-run:
+    description: Calculate the plan without changing files or remote state.
+    required: false
+    default: "false"
+  docker-mirror:
+    description: Optional Docker Hub mirror registry/path prefix.
+    required: false
+    default: ""
+  ghcr-mirror:
+    description: Optional GHCR mirror registry/path prefix.
+    required: false
+    default: ""
+  registry-mirrors:
+    description: Optional comma-separated registry=mirror-prefix mappings.
+    required: false
+    default: ""
+
+outputs:
+  operation:
+    description: Resolved check or build operation.
+    value: ${{ steps.run.outputs.operation }}
+  changed:
+    description: Whether managed project files changed.
+    value: ${{ steps.run.outputs.changed }}
+  package-id:
+    description: LazyCat package identifier.
+    value: ${{ steps.run.outputs['package-id'] }}
+  package-file:
+    description: Absolute path to package.yml.
+    value: ${{ steps.run.outputs['package-file'] }}
+  manifest-file:
+    description: Absolute path to the configured Manifest.
+    value: ${{ steps.run.outputs['manifest-file'] }}
+  version:
+    description: Normalized application version without a leading v.
+    value: ${{ steps.run.outputs.version }}
+  tag:
+    description: Matching event tag when present, otherwise normalized v<version>.
+    value: ${{ steps.run.outputs.tag }}
+  lpk-path:
+    description: Absolute path to the built LPK.
+    value: ${{ steps.run.outputs['lpk-path'] }}
+  sha256:
+    description: Lowercase hexadecimal SHA256 of the LPK.
+    value: ${{ steps.run.outputs.sha256 }}
+  download-url:
+    description: Confirmed GitHub Release Asset URL.
+    value: ${{ steps.run.outputs['download-url'] }}
+  image-results:
+    description: JSON array of image inspection and copy results.
+    value: ${{ steps.run.outputs['image-results'] }}
+  store-results:
+    description: JSON object containing official and private store publication results.
+    value: ${{ steps.run.outputs['store-results'] }}
+  official-store-enabled:
+    description: Whether official store publishing is enabled by project configuration.
+    value: ${{ steps.run.outputs['official-store-enabled'] }}
+  official-review-pending:
+    description: Whether automatic direct publication paused because an official review is in progress.
+    value: ${{ steps.run.outputs['official-review-pending'] }}
+  official-review-version:
+    description: Exact official-store version currently awaiting review, when present.
+    value: ${{ steps.run.outputs['official-review-version'] }}
+  private-store-enabled:
+    description: Whether private store publishing is enabled by project configuration.
+    value: ${{ steps.run.outputs['private-store-enabled'] }}
+  update-strategy:
+    description: Normalized pull or publish update strategy.
+    value: ${{ steps.run.outputs['update-strategy'] }}
+  channel:
+    description: Channel selected by the version-source image.
+    value: ${{ steps.run.outputs.channel }}
+  result-file:
+    description: Absolute path to the complete JSON result.
+    value: ${{ steps.run.outputs['result-file'] }}
+  runner-arch:
+    description: Host architecture used to run the Action binary.
+    value: ${{ steps.run.outputs['runner-arch'] }}
+  target-platform:
+    description: LazyCat target platform; linux/amd64 by default or linux/arm64 when project.target_arch is arm64.
+    value: ${{ steps.run.outputs['target-platform'] }}
+
+runs:
+  using: composite
+  steps:
+    - name: Run LazyCat Action
+      id: run
+      shell: bash
+      env:
+        LAZYCAT_ACTION_VERSION: v1.2.10
+        INPUT_OPERATION: ${{ inputs.operation }}
+        INPUT_CONFIG: ${{ inputs.config }}
+        INPUT_IMAGE_ID: ${{ inputs['image-id'] }}
+        INPUT_VERSION: ${{ inputs.version }}
+        INPUT_CHANGELOG: ${{ inputs.changelog }}
+        INPUT_LPK_PATH: ${{ inputs['lpk-path'] }}
+        INPUT_DOWNLOAD_URL: ${{ inputs['download-url'] }}
+        INPUT_SHA256: ${{ inputs.sha256 }}
+        INPUT_DRY_RUN: ${{ inputs['dry-run'] }}
+        LAZYCAT_GUARD_OFFICIAL_REVIEW: ${{ env.LAZYCAT_GUARD_OFFICIAL_REVIEW }}
+        LAZYCAT_DOCKER_MIRROR: ${{ inputs['docker-mirror'] || env.LAZYCAT_DOCKER_MIRROR }}
+        LAZYCAT_GHCR_MIRROR: ${{ inputs['ghcr-mirror'] || env.LAZYCAT_GHCR_MIRROR }}
+        LAZYCAT_REGISTRY_MIRRORS: ${{ inputs['registry-mirrors'] || env.LAZYCAT_REGISTRY_MIRRORS }}
+      run: "${{ github.action_path }}/scripts/run-action.sh"

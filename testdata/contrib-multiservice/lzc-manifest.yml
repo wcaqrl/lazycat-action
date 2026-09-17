@@ -1,0 +1,13 @@
+# Source: lazycat-contrib/new-api-lzcapp@524474a15fdb13d7aee0738cc7480be6c0447dea
+application:
+  subdomain: new-api
+  upstreams:
+    - location: /
+      backend: http://new-api:3000/
+services:
+  new-api:
+    image: docker.1ms.run/calciumion/new-api:v1.0.0-rc.20
+    depends_on:
+      - redis
+  redis:
+    image: registry.lazycat.cloud/czyt/library/redis:6108db5ea790851d

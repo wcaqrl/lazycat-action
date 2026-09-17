@@ -1,0 +1,4 @@
+application:
+  subdomain: fixture
+  routes:
+    - /=file:///lzcapp/pkg/content

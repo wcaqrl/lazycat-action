@@ -1,0 +1,15 @@
+version: 1
+
+project:
+  root: .
+  build_config: lzc-build.yml
+  package_file: package.yml
+  output: dist/app.lpk
+
+update:
+  strategy: pull
+  version_source:
+    type: git
+
+build:
+  run_buildscript: true

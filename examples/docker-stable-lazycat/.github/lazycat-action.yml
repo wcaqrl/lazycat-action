@@ -1,0 +1,31 @@
+version: 1
+
+project:
+  root: .
+  build_config: lzc-build.yml
+  package_file: package.yml
+  output: dist/application.lpk
+
+update:
+  strategy: pull
+  version_source:
+    type: image
+    image: web
+
+images:
+  - id: web
+    target: service
+    service: web
+    source: ghcr.io/acme/example-web
+    channel: stable
+    tag_regex: '^v?\d+\.\d+\.\d+$'
+    delivery:
+      mode: lazycat
+
+stores:
+  official:
+    enabled: true
+    continue_if_newer_version: true
+    changelog_locales: [zh, en]
+  private:
+    enabled: false

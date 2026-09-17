@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Test
+        run: go test -race ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Validate workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml examples/*/.github/workflows/*.yml
+
+  shell:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check shell syntax
+        run: bash -n scripts/run-action.sh scripts/run-action_test.sh examples/*/scripts/*.sh
+
+      - name: Run bootstrap tests
+        run: bash scripts/run-action_test.sh
+
+      - name: Run ShellCheck
+        run: shellcheck scripts/*.sh testdata/*/scripts/*.sh examples/*/scripts/*.sh
+
+  cross-build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch:
+          - amd64
+          - arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Build host binary
+        env:
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: "0"
+        run: go build -o "dist/lazycat-action_linux_${GOARCH}" ./cmd/lazycat-action
+
+  release-contract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          # GoReleaser v2.17.0 requires Go 1.26.4 or newer.
+          go-version: "1.26.x"
+          cache: true
+
+      - name: Build snapshot release
+        run: go run github.com/goreleaser/goreleaser/v2@v2.17.0 release --snapshot --clean --skip=publish,sbom
+
+      - name: Verify release archives
+        run: scripts/verify-release-artifacts.sh
+
+  fixture:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.x"
+          cache: true
+
+      - name: Build local Action binary
+        env:
+          CGO_ENABLED: "0"
+        run: go build -o dist/lazycat-action ./cmd/lazycat-action
+
+      - name: Build fixture through composite Action manifest
+        id: fixture-action
+        uses: ./
+        env:
+          LAZYCAT_ACTION_BINARY: ${{ github.workspace }}/dist/lazycat-action
+          SOURCE_DATE_EPOCH: "1783641600"
+        with:
+          operation: build
+          config: testdata/static-app/.github/lazycat-action-ci.yml
+          version: v1.2.3
+
+      - name: Verify composite fixture
+        env:
+          LPK_PATH: ${{ steps.fixture-action.outputs.lpk-path }}
+          RESULT_FILE: ${{ steps.fixture-action.outputs.result-file }}
+          TARGET_PLATFORM: ${{ steps.fixture-action.outputs.target-platform }}
+        run: |
+          test -f "${LPK_PATH}"
+          test -f "${RESULT_FILE}"
+          test "${TARGET_PLATFORM}" = "linux/amd64"
+
+      - name: Upload fixture LPK
+        uses: actions/upload-artifact@v7
+        with:
+          name: static-fixture-lpk
+          path: ${{ steps.fixture-action.outputs.lpk-path }}
+          if-no-files-found: error
