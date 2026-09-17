@@ -46,7 +46,7 @@ jobs:
     if: needs.prerequisites.outputs.ready == 'true'
     uses: ./.github/workflows/lazycat.yml
     with:
-      operation: auto
+      operation: check
       config: targets/poster/lazycat-action.yml
       changelog: |
         更新 Poster React 应用镜像并重新生成懒猫微服安装包。
