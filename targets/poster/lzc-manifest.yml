@@ -6,8 +6,8 @@ application:
 services:
   poster:
     # 监控流程会在构建 LPK 前将该地址替换为 copy-image 返回的官方镜像地址。
-    # upstream: ghcr.io/wcaqrl/poster:0.1.1
-    image: registry.lazycat.cloud/peter/wcaqrl/poster:ae8fc5c0af912517
+    # upstream: ghcr.io/wcaqrl/poster:0.1.2
+    image: registry.lazycat.cloud/peter/wcaqrl/poster:d4926eedc26ca9ce
     healthcheck:
       test:
         - CMD

@@ -1,5 +1,5 @@
 package: peter.lazycat.app.poster
-version: 0.1.1
+version: 0.1.2
 name: Poster Lab
 description: 用于验证 Docker 镜像到懒猫应用商店自动发布流程的 React 海报应用
 author: Peter
