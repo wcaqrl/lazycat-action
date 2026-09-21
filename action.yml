@@ -8,7 +8,7 @@ branding:
 
 inputs:
   operation:
-    description: auto, check, build, publish-official, or publish-private; auto uses the event and configured version source; check rejects tag and release events.
+    description: auto, check, build, or publish-official; auto uses the event and configured source; check rejects tag and release events.
     required: false
     default: auto
   config:
@@ -31,12 +31,8 @@ inputs:
     description: Existing LPK path used by publish operations.
     required: false
     default: ""
-  download-url:
-    description: GitHub Release Asset URL used by private-store publishing.
-    required: false
-    default: ""
   sha256:
-    description: Confirmed GitHub Release Asset SHA256 required by publish operations.
+    description: Expected LPK SHA256 used by official publishing.
     required: false
     default: ""
   dry-run:
@@ -84,14 +80,20 @@ outputs:
   sha256:
     description: Lowercase hexadecimal SHA256 of the LPK.
     value: ${{ steps.run.outputs.sha256 }}
-  download-url:
-    description: Confirmed GitHub Release Asset URL.
-    value: ${{ steps.run.outputs['download-url'] }}
   image-results:
     description: JSON array of image inspection and copy results.
     value: ${{ steps.run.outputs['image-results'] }}
+  source-result:
+    description: JSON object describing the selected Git or OCI source revision.
+    value: ${{ steps.run.outputs['source-result'] }}
+  fingerprint:
+    description: Immutable source and build recipe fingerprint.
+    value: ${{ steps.run.outputs.fingerprint }}
+  state-file:
+    description: Version 2 pipeline state lock file.
+    value: ${{ steps.run.outputs['state-file'] }}
   store-results:
-    description: JSON object containing official and private store publication results.
+    description: JSON object containing official store publication results.
     value: ${{ steps.run.outputs['store-results'] }}
   official-store-enabled:
     description: Whether official store publishing is enabled by project configuration.
@@ -102,9 +104,6 @@ outputs:
   official-review-version:
     description: Exact official-store version currently awaiting review, when present.
     value: ${{ steps.run.outputs['official-review-version'] }}
-  private-store-enabled:
-    description: Whether private store publishing is enabled by project configuration.
-    value: ${{ steps.run.outputs['private-store-enabled'] }}
   update-strategy:
     description: Normalized pull or publish update strategy.
     value: ${{ steps.run.outputs['update-strategy'] }}
@@ -128,14 +127,13 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.2.10
+        LAZYCAT_ACTION_VERSION: v1.3.0
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_IMAGE_ID: ${{ inputs['image-id'] }}
         INPUT_VERSION: ${{ inputs.version }}
         INPUT_CHANGELOG: ${{ inputs.changelog }}
         INPUT_LPK_PATH: ${{ inputs['lpk-path'] }}
-        INPUT_DOWNLOAD_URL: ${{ inputs['download-url'] }}
         INPUT_SHA256: ${{ inputs.sha256 }}
         INPUT_DRY_RUN: ${{ inputs['dry-run'] }}
         LAZYCAT_GUARD_OFFICIAL_REVIEW: ${{ env.LAZYCAT_GUARD_OFFICIAL_REVIEW }}

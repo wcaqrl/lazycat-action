@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/wcaqrl/lazycat-action/internal/platformauth"
 	"github.com/lib-x/lzc-toolkit-go/auth"
+	"github.com/wcaqrl/lazycat-action/internal/platformauth"
 )
 
 func TestPlatformPublisherSelectsAuthenticationProtocol(t *testing.T) {

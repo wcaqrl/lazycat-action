@@ -10,18 +10,23 @@ import (
 	"strings"
 	"testing"
 
+	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/wcaqrl/lazycat-action/internal/action"
 	actionbuild "github.com/wcaqrl/lazycat-action/internal/build"
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/delivery"
 	"github.com/wcaqrl/lazycat-action/internal/imageflow"
 	"github.com/wcaqrl/lazycat-action/internal/lpkcheck"
+	"github.com/wcaqrl/lazycat-action/internal/manifestedit"
+	"github.com/wcaqrl/lazycat-action/internal/pipelinestate"
 	"github.com/wcaqrl/lazycat-action/internal/platform"
+	"github.com/wcaqrl/lazycat-action/internal/prepare"
 	"github.com/wcaqrl/lazycat-action/internal/project"
 	"github.com/wcaqrl/lazycat-action/internal/publishflow"
+	"github.com/wcaqrl/lazycat-action/internal/registry"
+	"github.com/wcaqrl/lazycat-action/internal/source"
 	"github.com/wcaqrl/lazycat-action/internal/store/official"
 	"github.com/wcaqrl/lazycat-action/internal/yamledit"
-	lpkgo "github.com/lib-x/lzc-toolkit-go"
 )
 
 func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
@@ -78,7 +83,7 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	if result.RunnerArch != "arm64" || result.TargetPlatform != "linux/amd64" || string(result.ImageResults) != "[]" {
 		t.Fatalf("architectures/result=%#v", result)
 	}
-	if result.OfficialStoreEnabled || result.PrivateStoreEnabled || string(result.StoreResults) != "{}" {
+	if result.OfficialStoreEnabled || string(result.StoreResults) != "{}" {
 		t.Fatalf("store result=%#v", result)
 	}
 	if result.ResultFile == "" {
@@ -89,22 +94,155 @@ func TestRunBuildCallsDependenciesInOrderAndReturnsStableResult(t *testing.T) {
 	}
 }
 
+func TestRunVersion2BranchSourcePackagesAndPersistsResumableState(t *testing.T) {
+	root := t.TempDir()
+	packageFile := filepath.Join(root, "package.yml")
+	manifestFile := filepath.Join(root, "lzc-manifest.yml")
+	cfg := config.Config{
+		Version: 2,
+		Project: config.Project{Root: root, Output: "dist/app.lpk", TargetArch: "amd64"},
+		Source:  config.Source{Kind: config.SourceKindGit, URL: "git@gitee.com:acme/app.git", Select: config.SourceSelect{Strategy: "branch-head", Branch: "auto"}},
+		State:   config.State{File: ".lazycat-action.lock.yml"},
+		Update:  config.Update{Strategy: config.StrategyPublish},
+		Build:   config.Build{Prepare: config.Prepare{Mode: "command", Command: "./scripts/build.sh"}},
+		Stores:  config.Stores{Official: config.OfficialStore{Enabled: true}},
+	}
+	written := pipelinestate.Lock{}
+	inspectCalls := 0
+	deps := action.Dependencies{
+		Host: platform.Host{OS: "linux", Arch: "amd64"}, ResultDir: filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			inspectCalls++
+			version := "1.0.0"
+			if inspectCalls > 1 {
+				version = "1.0.1"
+			}
+			return project.Info{Root: root, PackageFile: packageFile, ManifestFile: manifestFile, Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "cloud.lazycat.example", Version: version}, nil
+		},
+		SetVersion: func(_ string, version string) (yamledit.Change, error) {
+			if version != "1.0.1" {
+				t.Fatalf("version=%q", version)
+			}
+			return yamledit.Change{Changed: true, Old: "1.0.0", New: version}, nil
+		},
+		Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{Path: request.Project.Output, PackageID: request.Project.PackageID, Version: request.Version, SHA256: strings.Repeat("a", 64), TargetPlatform: "linux/amd64"}, nil
+		},
+		DiscoverSource: func(context.Context, source.Request) (source.Candidate, error) {
+			return source.Candidate{Kind: "git", Ref: "refs/heads/master", Branch: "master", Revision: strings.Repeat("b", 40)}, nil
+		},
+		Fingerprint: func(context.Context, config.Config, source.Candidate) (string, error) {
+			return "sha256:fingerprint", nil
+		},
+		ReadState:  func(string) (pipelinestate.Lock, error) { return pipelinestate.Lock{}, nil },
+		WriteState: func(_ string, lock pipelinestate.Lock) error { written = lock; return nil },
+		PrepareSource: func(_ context.Context, request prepare.Request) (prepare.Result, error) {
+			if request.ApplicationVersion != "1.0.1" {
+				t.Fatalf("application version=%q", request.ApplicationVersion)
+			}
+			return prepare.Result{}, nil
+		},
+	}
+	result, err := action.Run(t.Context(), action.Input{Operation: action.OperationCheck, EventName: "schedule"}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.Changed || result.Version != "1.0.1" || result.Fingerprint != "sha256:fingerprint" || result.LPKPath == "" {
+		t.Fatalf("result=%#v", result)
+	}
+	if written.Status != "packaged" || written.Application.Version != "1.0.1" || written.Source.Branch != "master" {
+		t.Fatalf("state=%#v", written)
+	}
+}
+
+func TestRunVersion2PinsPreparedImageBeforeOfficialCopy(t *testing.T) {
+	root := t.TempDir()
+	digest := "sha256:" + strings.Repeat("a", 64)
+	cfg := config.Config{
+		Version: 2,
+		Project: config.Project{Root: root, Output: "dist/app.lpk", TargetArch: "amd64"},
+		Source:  config.Source{Kind: config.SourceKindGit, URL: "https://github.com/acme/app.git"},
+		State:   config.State{File: ".lazycat-action.lock.yml"},
+		Update:  config.Update{Strategy: config.StrategyPublish},
+		Build:   config.Build{Prepare: config.Prepare{Mode: "command", Command: "./build.sh", Output: "ttl.sh/acme/app:{version}"}},
+		Images: []config.Image{{
+			ID: "runtime", Target: "service", Service: "app",
+			Delivery: config.Delivery{Mode: "lazycat"},
+		}},
+	}
+	var deliveryRequest delivery.Request
+	var manifestUpdate manifestedit.Update
+	inspectCalls := 0
+	deps := action.Dependencies{
+		Host: platform.Host{OS: "linux", Arch: "amd64"}, ResultDir: filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			inspectCalls++
+			version := "1.0.0"
+			if inspectCalls > 1 {
+				version = "1.0.1"
+			}
+			return project.Info{
+				Root: root, PackageFile: filepath.Join(root, "package.yml"), ManifestFile: filepath.Join(root, "lzc-manifest.yml"),
+				Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "cloud.lazycat.example", Version: version,
+			}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) {
+			return yamledit.Change{Changed: true, Old: "1.0.0", New: "1.0.1"}, nil
+		},
+		Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{Path: request.Project.Output, PackageID: request.Project.PackageID, Version: request.Version, SHA256: strings.Repeat("b", 64), TargetPlatform: "linux/amd64"}, nil
+		},
+		DiscoverSource: func(context.Context, source.Request) (source.Candidate, error) {
+			return source.Candidate{Kind: "git", Ref: "refs/heads/main", Branch: "main", Revision: strings.Repeat("c", 40)}, nil
+		},
+		Fingerprint: func(context.Context, config.Config, source.Candidate) (string, error) {
+			return "sha256:fingerprint", nil
+		},
+		ReadState:  func(string) (pipelinestate.Lock, error) { return pipelinestate.Lock{}, nil },
+		WriteState: func(string, pipelinestate.Lock) error { return nil },
+		PrepareSource: func(context.Context, prepare.Request) (prepare.Result, error) {
+			return prepare.Result{Image: "ttl.sh/acme/app:1.0.1"}, nil
+		},
+		ReadManifestImages: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "runtime", RuntimeRef: "registry.lazycat.cloud/acme/old:1.0.0"}}, nil
+		},
+		InspectPreparedImage: func(context.Context, string, platform.Target) (registry.Image, error) {
+			return registry.Image{Digest: digest, Platform: "linux/amd64"}, nil
+		},
+		DeliverPreparedImage: func(_ context.Context, request delivery.Request) (delivery.Result, error) {
+			deliveryRequest = request
+			return delivery.Result{RuntimeRef: "registry.lazycat.cloud/acme/app:1.0.1", Copied: true}, nil
+		},
+		ApplyManifestImages: func(_ string, updates []manifestedit.Update) ([]manifestedit.Change, error) {
+			manifestUpdate = updates[0]
+			return []manifestedit.Change{{Changed: true}}, nil
+		},
+	}
+	if _, err := action.Run(t.Context(), action.Input{Operation: action.OperationCheck}, deps); err != nil {
+		t.Fatal(err)
+	}
+	want := "ttl.sh/acme/app:1.0.1@" + digest
+	if deliveryRequest.SourceRef != want || manifestUpdate.SourceRef != want {
+		t.Fatalf("delivery source=%q manifest source=%q want=%q", deliveryRequest.SourceRef, manifestUpdate.SourceRef, want)
+	}
+}
+
 func TestRunBuildKeepsOfficialWarningsStoreScoped(t *testing.T) {
 	tests := []struct {
 		name         string
 		official     bool
-		private      bool
 		wantOfficial bool
 	}{
-		{name: "dual store", official: true, private: true, wantOfficial: true},
-		{name: "private only", private: true, wantOfficial: false},
+		{name: "official enabled", official: true, wantOfficial: true},
+		{name: "official disabled", official: false, wantOfficial: false},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			cfg := gitConfig()
 			cfg.Stores.Official.Enabled = test.official
-			cfg.Stores.Private.Enabled = test.private
 			var buildRequest actionbuild.Request
 			deps := action.Dependencies{
 				Host:       platform.Host{OS: "linux", Arch: "amd64"},
@@ -158,7 +296,7 @@ func TestRunPublishesOfficialStoreAndReturnsStableJSON(t *testing.T) {
 			return actionbuild.Result{}, nil
 		},
 		Publish: func(_ context.Context, request publishflow.Request) (publishflow.Result, error) {
-			if request.Target != publishflow.TargetOfficial || request.LPKPath != filepath.Join(root, "dist", "app.lpk") {
+			if request.LPKPath != filepath.Join(root, "dist", "app.lpk") {
 				t.Fatalf("request=%#v", request)
 			}
 			return publishflow.Result{
@@ -238,12 +376,12 @@ func TestErrorIncludesSafeToolkitDiagnosticsWithoutCauseText(t *testing.T) {
 		Code:    action.CodeStorePublishFailed,
 		Message: "store publishing failed",
 		Cause: &lpkgo.Error{
-			Code: lpkgo.CodeConflict, Op: "store.private", StatusCode: 409,
+			Code: lpkgo.CodeConflict, Op: "store.official", StatusCode: 409,
 			Cause: errors.New("response contains lcst_must_not_leak"),
 		},
 	}
 	message := err.Error()
-	for _, expected := range []string{"STORE_PUBLISH_FAILED", "CONFLICT", "status=409", "op=store.private"} {
+	for _, expected := range []string{"STORE_PUBLISH_FAILED", "CONFLICT", "status=409", "op=store.official"} {
 		if !strings.Contains(message, expected) {
 			t.Fatalf("message=%q missing %q", message, expected)
 		}
@@ -663,6 +801,9 @@ func TestResolveOperation(t *testing.T) {
 	git := gitConfig()
 	image := gitConfig()
 	image.Update.VersionSource = config.VersionSource{Type: config.VersionSourceImage, Image: "web"}
+	v2 := gitConfig()
+	v2.Version = 2
+	v2.Update.VersionSource = config.VersionSource{}
 
 	tests := []struct {
 		name  string
@@ -678,6 +819,9 @@ func TestResolveOperation(t *testing.T) {
 		{name: "scheduled image check", input: action.Input{Operation: action.OperationAuto, EventName: "schedule"}, cfg: image, want: action.OperationCheck},
 		{name: "explicit check unchanged", input: action.Input{Operation: action.OperationCheck, EventName: "workflow_dispatch"}, cfg: git, want: action.OperationCheck},
 		{name: "explicit build unchanged", input: action.Input{Operation: action.OperationBuild, EventName: "schedule"}, cfg: image, want: action.OperationBuild},
+		{name: "v2 cli auto check", input: action.Input{Operation: action.OperationAuto}, cfg: v2, want: action.OperationCheck},
+		{name: "v2 branch push auto check", input: action.Input{Operation: action.OperationAuto, EventName: "push", RefName: "main"}, cfg: v2, want: action.OperationCheck},
+		{name: "v2 explicit version auto build", input: action.Input{Operation: action.OperationAuto, EventName: "workflow_dispatch", Version: "2.0.0"}, cfg: v2, want: action.OperationBuild},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

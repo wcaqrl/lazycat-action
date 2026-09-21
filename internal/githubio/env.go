@@ -25,7 +25,6 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		ImageID:               strings.TrimSpace(getenv("INPUT_IMAGE_ID")),
 		Changelog:             getenv("INPUT_CHANGELOG"),
 		LPKPath:               strings.TrimSpace(getenv("INPUT_LPK_PATH")),
-		DownloadURL:           strings.TrimSpace(getenv("INPUT_DOWNLOAD_URL")),
 		ExpectedSHA256:        strings.ToLower(strings.TrimSpace(getenv("INPUT_SHA256"))),
 		EventName:             strings.TrimSpace(getenv("GITHUB_EVENT_NAME")),
 		RefType:               strings.TrimSpace(getenv("GITHUB_REF_TYPE")),
@@ -131,6 +130,10 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 	if storeResults == "" {
 		storeResults = "{}"
 	}
+	sourceResult := string(result.SourceResult)
+	if sourceResult == "" {
+		sourceResult = "{}"
+	}
 	outputs := []struct {
 		key   string
 		value string
@@ -144,13 +147,14 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		{key: "tag", value: result.Tag},
 		{key: "lpk-path", value: result.LPKPath},
 		{key: "sha256", value: result.SHA256},
-		{key: "download-url", value: result.DownloadURL},
 		{key: "image-results", value: imageResults},
+		{key: "source-result", value: sourceResult},
+		{key: "fingerprint", value: result.Fingerprint},
+		{key: "state-file", value: result.StateFile},
 		{key: "store-results", value: storeResults},
 		{key: "official-store-enabled", value: strconv.FormatBool(result.OfficialStoreEnabled)},
 		{key: "official-review-pending", value: strconv.FormatBool(result.OfficialReviewPending)},
 		{key: "official-review-version", value: result.OfficialReviewVersion},
-		{key: "private-store-enabled", value: strconv.FormatBool(result.PrivateStoreEnabled)},
 		{key: "update-strategy", value: result.UpdateStrategy},
 		{key: "channel", value: result.Channel},
 		{key: "result-file", value: result.ResultFile},

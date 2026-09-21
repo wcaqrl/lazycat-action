@@ -24,10 +24,40 @@ const (
 type Config struct {
 	Version int     `yaml:"version"`
 	Project Project `yaml:"project"`
+	Source  Source  `yaml:"source"`
+	State   State   `yaml:"state"`
 	Update  Update  `yaml:"update"`
 	Build   Build   `yaml:"build"`
 	Images  []Image `yaml:"images"`
 	Stores  Stores  `yaml:"stores"`
+}
+
+type State struct {
+	File string `yaml:"file"`
+}
+
+type SourceKind string
+
+const (
+	SourceKindGit SourceKind = "git"
+	SourceKindOCI SourceKind = "oci"
+)
+
+type Source struct {
+	Kind    SourceKind   `yaml:"kind"`
+	URL     string       `yaml:"url"`
+	Image   string       `yaml:"image"`
+	AuthRef string       `yaml:"auth_ref"`
+	Select  SourceSelect `yaml:"select"`
+}
+
+type SourceSelect struct {
+	Strategy     string `yaml:"strategy"`
+	Branch       string `yaml:"branch"`
+	TagRegex     string `yaml:"tag_regex"`
+	ExcludeRegex string `yaml:"exclude_regex"`
+	Channel      string `yaml:"channel"`
+	Sort         string `yaml:"sort"`
 }
 
 type Project struct {
@@ -61,6 +91,16 @@ type VersionSource struct {
 type Build struct {
 	Toolchains     []Toolchain `yaml:"toolchains"`
 	RunBuildScript *bool       `yaml:"run_buildscript"`
+	Prepare        Prepare     `yaml:"prepare"`
+}
+
+type Prepare struct {
+	Mode       string            `yaml:"mode"`
+	Command    string            `yaml:"command"`
+	Context    string            `yaml:"context"`
+	Dockerfile string            `yaml:"dockerfile"`
+	Output     string            `yaml:"output_image"`
+	BuildArgs  map[string]string `yaml:"build_args"`
 }
 
 type Toolchain struct {
@@ -92,7 +132,6 @@ type Delivery struct {
 
 type Stores struct {
 	Official OfficialStore `yaml:"official"`
-	Private  PrivateStore  `yaml:"private"`
 }
 
 type OfficialStore struct {
@@ -133,13 +172,6 @@ type OfficialApplication struct {
 func (application OfficialApplication) HasSubmissionInfo() bool {
 	return application.Brief != "" || application.Description != "" || application.Keywords != "" ||
 		application.SupportPC || application.SupportMobile || len(application.ScreenshotPCFiles) > 0 || len(application.ScreenshotMobileFiles) > 0
-}
-
-type PrivateStore struct {
-	Enabled             bool   `yaml:"enabled"`
-	SkipIfVersionExists bool   `yaml:"skip_if_version_exists"`
-	Name                string `yaml:"name"`
-	Summary             string `yaml:"summary"`
 }
 
 func (build Build) ShouldRunBuildScript() bool {

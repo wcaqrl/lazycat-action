@@ -222,25 +222,25 @@ func TestReadInputRejectsNonCanonicalReleaseTag(t *testing.T) {
 func TestWriteOutputsUsesStableKeysAndDoesNotLeakSecrets(t *testing.T) {
 	for key, value := range map[string]string{
 		"LAZYCAT_TOKEN": "lazycat-secret", "LZC_CLI_TOKEN": "cli-secret", "LAZYCAT_PASSWORD": "password-secret",
-		"LZC_API_HOST": "api.example.invalid", "LZC_API_TOKEN": "pat-secret", "APPSTORE_TOKEN": "store-secret",
+		"LZC_API_HOST": "api.example.invalid", "LZC_API_TOKEN": "pat-secret",
 	} {
 		t.Setenv(key, value)
 	}
 	var output bytes.Buffer
 	result := action.Result{
 		Operation: "check", Changed: true, PackageID: "cloud.lazycat.example", PackageFile: "/tmp/package.yml", ManifestFile: "/tmp/lzc-manifest.yml", Version: "1.2.3", Tag: "v1.2.3", LPKPath: "/tmp/app.lpk",
-		SHA256: strings.Repeat("a", 64), ImageResults: []byte("[]"), StoreResults: []byte(`{"official":{"published":true}}`), UpdateStrategy: "pull", Channel: "stable", ResultFile: "/tmp/result.json", RunnerArch: "arm64", TargetPlatform: "linux/amd64", OfficialStoreEnabled: true,
+		SHA256: strings.Repeat("a", 64), ImageResults: []byte("[]"), SourceResult: []byte(`{"kind":"git"}`), Fingerprint: "sha256:test", StateFile: "/tmp/state.yml", StoreResults: []byte(`{"official":{"published":true}}`), UpdateStrategy: "pull", Channel: "stable", ResultFile: "/tmp/result.json", RunnerArch: "arm64", TargetPlatform: "linux/amd64", OfficialStoreEnabled: true,
 	}
 	if err := githubio.WriteOutputs(&output, result); err != nil {
 		t.Fatal(err)
 	}
 	got := output.String()
-	for _, key := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "download-url", "image-results", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "private-store-enabled", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
+	for _, key := range []string{"operation", "changed", "package-id", "package-file", "manifest-file", "version", "tag", "lpk-path", "sha256", "image-results", "source-result", "fingerprint", "state-file", "store-results", "official-store-enabled", "official-review-pending", "official-review-version", "update-strategy", "channel", "result-file", "runner-arch", "target-platform"} {
 		if !strings.Contains(got, key+"<<lazycat_output_") {
 			t.Fatalf("missing key %q in:\n%s", key, got)
 		}
 	}
-	for _, secret := range []string{"lazycat-secret", "cli-secret", "password-secret", "pat-secret", "store-secret"} {
+	for _, secret := range []string{"lazycat-secret", "cli-secret", "password-secret", "pat-secret"} {
 		if strings.Contains(got, secret) {
 			t.Fatalf("output leaked secret %q", secret)
 		}

@@ -70,12 +70,18 @@ func applyDefaults(value *Config) {
 	if strings.TrimSpace(value.Project.TargetArch) == "" {
 		value.Project.TargetArch = platform.DefaultTargetArch
 	}
+	if value.Version == 2 && strings.TrimSpace(value.State.File) == "" {
+		value.State.File = ".lazycat-action.lock.yml"
+	}
 	if value.Update.Strategy == "" {
 		value.Update.Strategy = StrategyPull
 	}
 	if value.Build.RunBuildScript == nil {
 		enabled := true
 		value.Build.RunBuildScript = &enabled
+	}
+	if value.Version == 2 && strings.TrimSpace(value.Build.Prepare.Mode) == "" {
+		value.Build.Prepare.Mode = "passthrough"
 	}
 	if value.Stores.Official.Retry.MaxAttempts == 0 {
 		value.Stores.Official.Retry.MaxAttempts = 3
@@ -92,6 +98,22 @@ func applyDefaults(value *Config) {
 	value.Project.PackageFile = filepath.Clean(strings.TrimSpace(value.Project.PackageFile))
 	value.Project.Output = filepath.Clean(strings.TrimSpace(value.Project.Output))
 	value.Project.TargetArch = strings.ToLower(strings.TrimSpace(value.Project.TargetArch))
+	value.State.File = filepath.Clean(strings.TrimSpace(value.State.File))
+	value.Source.Kind = SourceKind(strings.ToLower(strings.TrimSpace(string(value.Source.Kind))))
+	value.Source.URL = strings.TrimSpace(value.Source.URL)
+	value.Source.Image = strings.TrimSpace(value.Source.Image)
+	value.Source.AuthRef = strings.TrimSpace(value.Source.AuthRef)
+	value.Source.Select.Strategy = strings.ToLower(strings.TrimSpace(value.Source.Select.Strategy))
+	value.Source.Select.Branch = strings.TrimSpace(value.Source.Select.Branch)
+	value.Source.Select.TagRegex = strings.TrimSpace(value.Source.Select.TagRegex)
+	value.Source.Select.ExcludeRegex = strings.TrimSpace(value.Source.Select.ExcludeRegex)
+	value.Source.Select.Channel = strings.ToLower(strings.TrimSpace(value.Source.Select.Channel))
+	value.Source.Select.Sort = strings.ToLower(strings.TrimSpace(value.Source.Select.Sort))
+	value.Build.Prepare.Mode = strings.ToLower(strings.TrimSpace(value.Build.Prepare.Mode))
+	value.Build.Prepare.Command = strings.TrimSpace(value.Build.Prepare.Command)
+	value.Build.Prepare.Context = strings.TrimSpace(value.Build.Prepare.Context)
+	value.Build.Prepare.Dockerfile = strings.TrimSpace(value.Build.Prepare.Dockerfile)
+	value.Build.Prepare.Output = strings.TrimSpace(value.Build.Prepare.Output)
 	value.Update.Strategy = Strategy(strings.ToLower(strings.TrimSpace(string(value.Update.Strategy))))
 	value.Update.VersionSource.Type = VersionSourceType(strings.ToLower(strings.TrimSpace(string(value.Update.VersionSource.Type))))
 	value.Update.VersionSource.Image = strings.TrimSpace(value.Update.VersionSource.Image)
@@ -109,8 +131,6 @@ func applyDefaults(value *Config) {
 	value.Stores.Official.Application.SourceAuthor = strings.TrimSpace(value.Stores.Official.Application.SourceAuthor)
 	value.Stores.Official.Application.ScreenshotPCFiles = normalizeProjectPaths(value.Stores.Official.Application.ScreenshotPCFiles)
 	value.Stores.Official.Application.ScreenshotMobileFiles = normalizeProjectPaths(value.Stores.Official.Application.ScreenshotMobileFiles)
-	value.Stores.Private.Name = strings.TrimSpace(value.Stores.Private.Name)
-	value.Stores.Private.Summary = strings.TrimSpace(value.Stores.Private.Summary)
 	for index := range value.Build.Toolchains {
 		value.Build.Toolchains[index].Kind = strings.ToLower(strings.TrimSpace(value.Build.Toolchains[index].Kind))
 		value.Build.Toolchains[index].Version = strings.TrimSpace(value.Build.Toolchains[index].Version)
@@ -153,8 +173,8 @@ func applyDefaults(value *Config) {
 }
 
 func validate(value Config) error {
-	if value.Version != 1 {
-		return fmt.Errorf("unsupported configuration version %d: expected 1", value.Version)
+	if value.Version != 1 && value.Version != 2 {
+		return fmt.Errorf("unsupported configuration version %d: expected 1 or 2", value.Version)
 	}
 	if err := validateRoot(value.Project.Root); err != nil {
 		return err
@@ -173,6 +193,22 @@ func validate(value Config) error {
 	}
 	if _, err := platform.NormalizeTarget(value.Project.TargetArch); err != nil {
 		return err
+	}
+	if value.Version == 2 {
+		if value.Update.VersionSource.Type != "" || value.Update.VersionSource.Image != "" || value.Update.VersionSource.Bump != "" {
+			return errors.New("version 2 pipelines use source instead of update.version_source")
+		}
+		if err := validateSource(value); err != nil {
+			return err
+		}
+		if err := validateProjectPath("state.file", value.State.File); err != nil {
+			return err
+		}
+		if err := validatePrepare(value); err != nil {
+			return err
+		}
+	} else if value.Source.Kind != "" || value.Source.URL != "" || value.Source.Image != "" || value.Source.AuthRef != "" {
+		return errors.New("source configuration requires version: 2")
 	}
 	if !value.Stores.Official.CreateIfMissing && hasOfficialApplication(value.Stores.Official.Application) {
 		return errors.New("official application metadata requires create_if_missing=true")
@@ -236,7 +272,7 @@ func validate(value Config) error {
 			return fmt.Errorf("duplicate image id %q", image.ID)
 		}
 		images[image.ID] = struct{}{}
-		if image.Source == "" && image.Delivery.Mode != "mirror" {
+		if image.Source == "" && image.Delivery.Mode != "mirror" && value.Version != 2 {
 			return fmt.Errorf("image %q source is required", image.ID)
 		}
 		if image.MaxTags < 0 || image.MaxTags > 50000 {
@@ -272,6 +308,12 @@ func validate(value Config) error {
 		if value.Stores.Official.Enabled && image.Delivery.Mode != "lazycat" {
 			return fmt.Errorf("official store requires lazycat delivery for image %q", image.ID)
 		}
+	}
+	if value.Version == 2 {
+		if len(value.Images) > 1 {
+			return errors.New("version 2 source pipelines currently support at most one runtime image binding")
+		}
+		return nil
 	}
 	switch value.Update.VersionSource.Type {
 	case VersionSourceGit:
@@ -316,6 +358,114 @@ func validate(value Config) error {
 		}
 		if versionImage.Delivery.Mode == "mirror" && !versionImage.Delivery.RequireDigestMatch {
 			return errors.New("version source bump with mirror delivery requires require_digest_match=true")
+		}
+	}
+	return nil
+}
+
+func validateSource(value Config) error {
+	source := value.Source
+	if source.AuthRef != "" && !regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]*$`).MatchString(source.AuthRef) {
+		return fmt.Errorf("source auth_ref %q contains unsupported characters", source.AuthRef)
+	}
+	switch source.Kind {
+	case SourceKindGit:
+		if source.URL == "" {
+			return errors.New("Git source URL is required")
+		}
+		if source.Image != "" {
+			return errors.New("Git source must not define image")
+		}
+		strategy := source.Select.Strategy
+		if strategy == "" {
+			strategy = "branch-head"
+		}
+		switch strategy {
+		case "branch", "branch-head", "default-branch", "tag", "release", "semver-tag":
+		default:
+			return fmt.Errorf("unsupported Git source strategy %q", strategy)
+		}
+	case SourceKindOCI:
+		if source.Image == "" {
+			return errors.New("OCI source image is required")
+		}
+		if source.URL != "" {
+			return errors.New("OCI source must not define url")
+		}
+		if source.AuthRef != "" {
+			return errors.New("OCI source auth_ref is not supported yet; authenticate the Runner registry client instead")
+		}
+		if strategy := source.Select.Strategy; strategy != "" && strategy != "semver-tag" && strategy != "tag" {
+			return fmt.Errorf("unsupported OCI source strategy %q", strategy)
+		}
+	default:
+		return fmt.Errorf("unsupported source kind %q", source.Kind)
+	}
+	for label, pattern := range map[string]string{"tag_regex": source.Select.TagRegex, "exclude_regex": source.Select.ExcludeRegex} {
+		if pattern != "" {
+			if _, err := regexp.Compile(pattern); err != nil {
+				return fmt.Errorf("source %s is invalid: %w", label, err)
+			}
+		}
+	}
+	return nil
+}
+
+func validatePrepare(value Config) error {
+	prepare := value.Build.Prepare
+	switch prepare.Mode {
+	case "passthrough":
+		if value.Source.Kind != SourceKindOCI {
+			return errors.New("passthrough build.prepare mode requires an OCI source")
+		}
+		if prepare.Command != "" || prepare.Dockerfile != "" || prepare.Context != "" || prepare.Output != "" || len(prepare.BuildArgs) > 0 {
+			return errors.New("passthrough build.prepare mode must not define command, Dockerfile, context, output_image, or build_args")
+		}
+	case "command":
+		if prepare.Command == "" {
+			return errors.New("command build.prepare mode requires command")
+		}
+		if prepare.Dockerfile != "" {
+			return errors.New("command build.prepare mode must not define dockerfile")
+		}
+		if prepare.Context != "" && prepare.Context != "source" {
+			if err := validateProjectPath("build.prepare.context", prepare.Context); err != nil {
+				return err
+			}
+		}
+	case "dockerfile":
+		if prepare.Dockerfile == "" || prepare.Output == "" {
+			return errors.New("dockerfile build.prepare mode requires dockerfile and output_image")
+		}
+		if err := validateProjectPath("build.prepare.dockerfile", prepare.Dockerfile); err != nil {
+			return err
+		}
+		if prepare.Context != "" && prepare.Context != "source" {
+			if err := validateProjectPath("build.prepare.context", prepare.Context); err != nil {
+				return err
+			}
+		}
+		if prepare.Context == "source" && value.Source.Kind != SourceKindGit {
+			return errors.New("build.prepare.context=source requires a Git source")
+		}
+		if prepare.Command != "" {
+			return errors.New("dockerfile build.prepare mode must not define command")
+		}
+	default:
+		return fmt.Errorf("unsupported build.prepare mode %q", prepare.Mode)
+	}
+	for key := range prepare.BuildArgs {
+		if !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(key) {
+			return fmt.Errorf("invalid build.prepare build_args key %q", key)
+		}
+	}
+	if prepare.Output != "" {
+		for _, placeholder := range regexp.MustCompile(`\{[^{}]+\}`).FindAllString(prepare.Output, -1) {
+			switch placeholder {
+			case "{version}", "{source_version}", "{revision}", "{fingerprint}":
+			default:
+				return fmt.Errorf("unsupported output_image placeholder %q", placeholder)
+			}
 		}
 	}
 	return nil

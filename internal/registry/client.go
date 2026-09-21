@@ -10,12 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/wcaqrl/lazycat-action/internal/platform"
-	"github.com/wcaqrl/lazycat-action/internal/versioning"
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/wcaqrl/lazycat-action/internal/platform"
+	"github.com/wcaqrl/lazycat-action/internal/versioning"
 )
 
 const (
@@ -60,7 +60,7 @@ type TagFilter struct {
 
 func New(options ...remote.Option) *Client {
 	return &Client{
-		options: append([]remote.Option(nil), options...),
+		options: append([]remote.Option{remote.WithAuthFromKeychain(authn.DefaultKeychain)}, options...),
 		tagMetadata: dockerHubTagMetadata{
 			client:  &http.Client{Timeout: dockerHubRequestTimeout},
 			baseURL: dockerHubBaseURL,

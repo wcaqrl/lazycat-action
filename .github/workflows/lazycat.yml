@@ -1,65 +1,57 @@
-name: LazyCat LPK Automation
+name: LazyCat official store automation
 
 on:
   workflow_call:
     inputs:
       config:
-        description: Path to .github/lazycat-action.yml.
+        description: Path to the platform-neutral LazyCat pipeline configuration.
         type: string
         required: false
         default: .github/lazycat-action.yml
       operation:
-        description: auto, check, build, publish-official, or publish-private; auto uses the event and configured version source.
+        description: auto, check, build, or publish-official.
         type: string
         required: false
         default: auto
       runner:
-        description: Linux Runner label; amd64 and arm64 hosts are supported.
+        description: Linux Runner label.
         type: string
         required: false
         default: ubuntu-latest
       image-id:
-        description: Optional configured image ID.
+        description: Optional legacy version 1 image ID.
         type: string
         required: false
         default: ""
       version:
-        description: Optional manual application SemVer; auto builds when supplied.
+        description: Optional manual application SemVer.
+        type: string
+        required: false
+        default: ""
+      changelog:
+        description: Official store review changelog.
         type: string
         required: false
         default: ""
       dry-run:
-        description: Calculate changes without mutating files or remote state.
-        type: boolean
-        required: false
-        default: false
-      changelog:
-        description: GitHub Release changelog.
-        type: string
-        required: false
-        default: ""
-      versioned-release-asset:
-        description: Copy the verified LPK to <package-id>-v<version>.lpk for GitHub Release and store publication.
+        description: Discover and plan without changing files or remote state.
         type: boolean
         required: false
         default: false
       toolchains:
-        description: Comma-separated subset of go,node,rust,docker without spaces.
+        description: Comma-separated subset of go,node,rust,docker.
         type: string
         required: false
         default: none
       go-version:
-        description: Go version; empty reads go.mod.
         type: string
         required: false
         default: ""
       node-version:
-        description: Node version; empty reads .node-version.
         type: string
         required: false
         default: ""
       rust-toolchain:
-        description: Explicit Rust toolchain when rust is selected.
         type: string
         required: false
         default: ""
@@ -69,22 +61,21 @@ on:
         required: false
         default: npm
       enable-qemu:
-        description: Install QEMU when docker is selected.
         type: boolean
         required: false
         default: true
       docker-mirror:
-        description: Optional Docker Hub mirror registry/path prefix; defaults to docker.1ms.run.
+        description: Optional Docker Hub mirror registry/path prefix.
         type: string
         required: false
         default: ""
       ghcr-mirror:
-        description: Optional GHCR mirror registry/path prefix; defaults to ghcr.1ms.run.
+        description: Optional GHCR mirror registry/path prefix.
         type: string
         required: false
         default: ""
       registry-mirrors:
-        description: Optional comma-separated registry=mirror-prefix mappings for other registries.
+        description: Optional comma-separated registry=mirror-prefix mappings.
         type: string
         required: false
         default: ""
@@ -95,13 +86,13 @@ on:
         required: false
       LAZYCAT_TOKEN:
         required: false
-      APPSTORE_URL:
+      SOURCE_SSH_KEY:
         required: false
-      APPSTORE_TOKEN:
+      SOURCE_KNOWN_HOSTS:
         required: false
-      APP_ID:
+      SOURCE_TOKEN:
         required: false
-      PRIVATE_STORE_GROUP_CODES:
+      SOURCE_USERNAME:
         required: false
       REGISTRY:
         required: false
@@ -128,10 +119,14 @@ on:
         value: ${{ jobs.lazycat.outputs.lpk-path }}
       sha256:
         value: ${{ jobs.lazycat.outputs.sha256 }}
-      download-url:
-        value: ${{ jobs.lazycat.outputs.download-url }}
       image-results:
         value: ${{ jobs.lazycat.outputs.image-results }}
+      source-result:
+        value: ${{ jobs.lazycat.outputs.source-result }}
+      fingerprint:
+        value: ${{ jobs.lazycat.outputs.fingerprint }}
+      state-file:
+        value: ${{ jobs.lazycat.outputs.state-file }}
       store-results:
         value: ${{ jobs.lazycat.outputs.store-results }}
       official-store-enabled:
@@ -140,8 +135,6 @@ on:
         value: ${{ jobs.lazycat.outputs.official-review-pending }}
       official-review-version:
         value: ${{ jobs.lazycat.outputs.official-review-version }}
-      private-store-enabled:
-        value: ${{ jobs.lazycat.outputs.private-store-enabled }}
       update-strategy:
         value: ${{ jobs.lazycat.outputs.update-strategy }}
       channel:
@@ -158,12 +151,19 @@ permissions:
   pull-requests: write
 
 concurrency:
-  group: lazycat-${{ github.repository }}-${{ inputs.image-id != '' && inputs.image-id || 'all' }}
+  group: lazycat-${{ github.repository }}-${{ inputs.config }}
   cancel-in-progress: false
 
 jobs:
   lazycat:
     runs-on: ${{ inputs.runner }}
+    env:
+      REGISTRY: ${{ secrets.REGISTRY }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+      LAZYCAT_DOCKER_MIRROR: ${{ inputs.docker-mirror || vars.LAZYCAT_DOCKER_MIRROR }}
+      LAZYCAT_GHCR_MIRROR: ${{ inputs.ghcr-mirror || vars.LAZYCAT_GHCR_MIRROR }}
+      LAZYCAT_REGISTRY_MIRRORS: ${{ inputs.registry-mirrors || vars.LAZYCAT_REGISTRY_MIRRORS }}
     outputs:
       operation: ${{ steps.lazycat.outputs.operation }}
       changed: ${{ steps.lazycat.outputs.changed }}
@@ -174,27 +174,21 @@ jobs:
       tag: ${{ steps.lazycat.outputs.tag }}
       lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
       sha256: ${{ steps.lazycat.outputs.sha256 }}
-      download-url: ${{ steps.asset-url.outputs.download-url }}
       image-results: ${{ steps.lazycat.outputs.image-results }}
-      store-results: ${{ steps.store-results.outputs.store-results }}
+      source-result: ${{ steps.lazycat.outputs.source-result }}
+      fingerprint: ${{ steps.lazycat.outputs.fingerprint }}
+      state-file: ${{ steps.publish.outputs.state-file || steps.lazycat.outputs.state-file }}
+      store-results: ${{ steps.publish.outputs.store-results || steps.lazycat.outputs.store-results }}
       official-store-enabled: ${{ steps.lazycat.outputs.official-store-enabled }}
-      official-review-pending: ${{ steps.lazycat.outputs.official-review-pending == 'true' || steps.publish-official.outputs.official-review-pending == 'true' }}
-      official-review-version: ${{ steps.publish-official.outputs.official-review-version || steps.lazycat.outputs.official-review-version }}
-      private-store-enabled: ${{ steps.lazycat.outputs.private-store-enabled }}
+      official-review-pending: ${{ steps.publish.outputs.official-review-pending || steps.lazycat.outputs.official-review-pending }}
+      official-review-version: ${{ steps.publish.outputs.official-review-version || steps.lazycat.outputs.official-review-version }}
       update-strategy: ${{ steps.lazycat.outputs.update-strategy }}
       channel: ${{ steps.lazycat.outputs.channel }}
-      result-file: ${{ steps.lazycat.outputs.result-file }}
+      result-file: ${{ steps.publish.outputs.result-file || steps.lazycat.outputs.result-file }}
       runner-arch: ${{ steps.lazycat.outputs.runner-arch }}
       target-platform: ${{ steps.lazycat.outputs.target-platform }}
-    env:
-      REGISTRY: ${{ secrets.REGISTRY }}
-      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
-      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
-      LAZYCAT_DOCKER_MIRROR: ${{ inputs.docker-mirror || vars.LAZYCAT_DOCKER_MIRROR }}
-      LAZYCAT_GHCR_MIRROR: ${{ inputs.ghcr-mirror || vars.LAZYCAT_GHCR_MIRROR }}
-      LAZYCAT_REGISTRY_MIRRORS: ${{ inputs.registry-mirrors || vars.LAZYCAT_REGISTRY_MIRRORS }}
     steps:
-      - name: Checkout application
+      - name: Checkout pipeline project
         uses: actions/checkout@v7
         with:
           fetch-depth: 0
@@ -209,24 +203,16 @@ jobs:
         run: |
           set -euo pipefail
           value="$(tr '[:upper:]' '[:lower:]' <<<"${TOOLCHAINS}" | tr -d '[:space:]')"
-          if [[ "${value}" == "none" || -z "${value}" ]]; then
-            value=""
-          fi
+          if [[ -z "${value}" || "${value}" == "none" ]]; then value=""; fi
           IFS=',' read -ra entries <<<"${value}"
           for entry in "${entries[@]}"; do
-            case "${entry}" in
-              ""|go|node|rust|docker) ;;
-              *) echo "unsupported toolchain ${entry}" >&2; exit 1 ;;
-            esac
+            case "${entry}" in ""|go|node|rust|docker) ;; *) echo "unsupported toolchain ${entry}" >&2; exit 1 ;; esac
           done
           if [[ ",${value}," == *",rust,"* && -z "${RUST_TOOLCHAIN}" && ! -f rust-toolchain.toml ]]; then
             echo "rust-toolchain input or rust-toolchain.toml is required when rust is selected" >&2
             exit 1
           fi
-          case "${NODE_PACKAGE_MANAGER}" in
-            npm|pnpm|yarn) ;;
-            *) echo "unsupported node package manager ${NODE_PACKAGE_MANAGER}" >&2; exit 1 ;;
-          esac
+          case "${NODE_PACKAGE_MANAGER}" in npm|pnpm|yarn) ;; *) echo "unsupported node package manager ${NODE_PACKAGE_MANAGER}" >&2; exit 1 ;; esac
           echo "value=,${value}," >>"${GITHUB_OUTPUT}"
           echo "normalized=${value:-none}" >>"${GITHUB_OUTPUT}"
 
@@ -285,7 +271,7 @@ jobs:
           toolchain: ${{ inputs.rust-toolchain != '' && inputs.rust-toolchain || steps.rust-toolchain-file.outputs.value }}
           targets: x86_64-unknown-linux-gnu,aarch64-unknown-linux-gnu
 
-      - name: Log in to source Registry
+      - name: Log in to build Registry
         if: env.REGISTRY != '' && env.REGISTRY_USERNAME != '' && env.REGISTRY_PASSWORD != ''
         uses: docker/login-action@v4
         with:
@@ -308,13 +294,17 @@ jobs:
         shell: bash
         run: echo "epoch=$(git show -s --format=%ct HEAD)" >>"${GITHUB_OUTPUT}"
 
-      - name: Run LazyCat automation
+      - name: Run LazyCat pipeline
         id: lazycat
         uses: wcaqrl/lazycat-action@v1
         env:
           LZC_API_HOST: ${{ secrets.LZC_API_HOST }}
           LZC_API_TOKEN: ${{ secrets.LZC_API_TOKEN }}
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
+          LAZYCAT_AUTH_SOURCE_SSH_KEY: ${{ secrets.SOURCE_SSH_KEY }}
+          LAZYCAT_AUTH_SOURCE_KNOWN_HOSTS: ${{ secrets.SOURCE_KNOWN_HOSTS }}
+          LAZYCAT_AUTH_SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+          LAZYCAT_AUTH_SOURCE_USERNAME: ${{ secrets.SOURCE_USERNAME }}
           LAZYCAT_WORKFLOW_TOOLCHAINS: ${{ steps.toolchains.outputs.normalized }}
           LAZYCAT_WORKFLOW_GO_VERSION: ${{ inputs.go-version }}
           LAZYCAT_WORKFLOW_NODE_VERSION: ${{ inputs.node-version }}
@@ -328,575 +318,82 @@ jobs:
           changelog: ${{ inputs.changelog }}
           dry-run: ${{ inputs.dry-run }}
 
-      - name: Prepare release changelog
-        id: release-notes
-        shell: bash
-        env:
-          INPUT_CHANGELOG: ${{ inputs.changelog }}
-          VERSION: ${{ steps.lazycat.outputs.version }}
-        run: |
-          set -euo pipefail
-          value="${INPUT_CHANGELOG}"
-          if [[ -z "${value}" ]]; then
-            value="Release ${VERSION}"
-          fi
-          delimiter="lazycat_changelog"
-          while grep -Fxq "${delimiter}" <<<"${value}"; do
-            delimiter="${delimiter}_x"
-          done
-          {
-            echo "value<<${delimiter}"
-            echo "${value}"
-            echo "${delimiter}"
-          } >>"${GITHUB_OUTPUT}"
-
-      - name: Upload validation Artifact
+      - name: Upload validated LPK
         if: steps.lazycat.outputs.lpk-path != ''
         uses: actions/upload-artifact@v7
         with:
-          name: lpk-${{ steps.lazycat.outputs.version }}
+          name: lpk-${{ steps.lazycat.outputs.package-id }}-${{ steps.lazycat.outputs.version }}
           path: ${{ steps.lazycat.outputs.lpk-path }}
           if-no-files-found: error
 
-      - name: Create update pull request
-        if: steps.lazycat.outputs.operation == 'check' && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'pull' && !inputs.dry-run
+      - name: Create source update pull request
+        if: steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'pull' && !inputs.dry-run
         uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ github.token }}
-          branch: lazycat/update-${{ inputs.image-id != '' && inputs.image-id || 'all' }}
+          branch: lazycat/source-update
           add-paths: |
             ${{ steps.lazycat.outputs.package-file }}
             ${{ steps.lazycat.outputs.manifest-file }}
+            ${{ steps.lazycat.outputs.state-file }}
           delete-branch: true
-          commit-message: "chore: update LazyCat images to ${{ steps.lazycat.outputs.version }}"
-          title: "chore: update LazyCat images to ${{ steps.lazycat.outputs.version }}"
+          commit-message: "chore: update LazyCat application to ${{ steps.lazycat.outputs.version }}"
+          title: "chore: update LazyCat application to ${{ steps.lazycat.outputs.version }}"
           body: |
-            Automated LazyCat image update.
+            Automated source update.
 
             - Version: `${{ steps.lazycat.outputs.version }}`
-            - Channel: `${{ steps.lazycat.outputs.channel }}`
-            - Target platform: `${{ steps.lazycat.outputs.target-platform }}`
-            - SHA256: `${{ steps.lazycat.outputs.sha256 }}`
-          labels: dependencies,automated
+            - Fingerprint: `${{ steps.lazycat.outputs.fingerprint }}`
+            - Target: `${{ steps.lazycat.outputs.target-platform }}`
 
-      - name: Commit direct-publish update
-        id: direct-commit
-        if: (steps.lazycat.outputs.operation == 'check' || (steps.lazycat.outputs.operation == 'build' && github.ref_type == 'branch')) && steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'publish' && !inputs.dry-run
+      - name: Commit packaged official update
+        id: packaged-commit
+        if: steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.lpk-path != '' && !inputs.dry-run
         shell: bash
         env:
           VERSION: ${{ steps.lazycat.outputs.version }}
           PACKAGE_FILE: ${{ steps.lazycat.outputs.package-file }}
           MANIFEST_FILE: ${{ steps.lazycat.outputs.manifest-file }}
+          STATE_FILE: ${{ steps.lazycat.outputs.state-file }}
         run: |
           set -euo pipefail
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-
-          remote_ref="refs/remotes/origin/${GITHUB_REF_NAME}"
-          write_commit_output() {
-            echo "commit=$(git rev-parse HEAD)" >>"${GITHUB_OUTPUT}"
-          }
-          refresh_remote() {
-            git fetch --no-tags origin "+refs/heads/${GITHUB_REF_NAME}:${remote_ref}"
-          }
-          working_tree_matches_remote() {
-            git diff --quiet "${remote_ref}" --
-          }
-          adopt_matching_remote() {
-            echo "Remote branch already contains the exact candidate tree; continuing from ${remote_ref}."
-            git reset --hard "${remote_ref}"
-            write_commit_output
-          }
-
-          refresh_remote
-          if working_tree_matches_remote; then
-            adopt_matching_remote
-            exit 0
+          paths=("${PACKAGE_FILE}" "${MANIFEST_FILE}")
+          if [[ -n "${STATE_FILE}" ]]; then paths+=("${STATE_FILE}"); fi
+          git add -- "${paths[@]}"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: package LazyCat application ${VERSION} [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
 
-          git add -- "${PACKAGE_FILE}" "${MANIFEST_FILE}"
-          git commit -m "chore: update LazyCat application to ${VERSION} [skip ci]"
-          if git push origin "HEAD:${GITHUB_REF_NAME}"; then
-            write_commit_output
-            exit 0
-          fi
-
-          refresh_remote
-          if working_tree_matches_remote; then
-            adopt_matching_remote
-            exit 0
-          fi
-          echo "Direct-publish push failed and the remote tree differs from this candidate; refusing to publish a stale artifact." >&2
-          exit 1
-
-      - name: Classify Release work
-        id: release-state
-        uses: actions/github-script@v9
-        env:
-          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-          LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
-          PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
-          VERSION: ${{ steps.lazycat.outputs.version }}
-          VERSIONED_RELEASE_ASSET: ${{ inputs.versioned-release-asset }}
-          UPDATE_STRATEGY: ${{ steps.lazycat.outputs.update-strategy }}
-          CHANGED: ${{ steps.lazycat.outputs.changed }}
-          DRY_RUN: ${{ inputs.dry-run }}
-          OFFICIAL_REVIEW_PENDING: ${{ steps.lazycat.outputs.official-review-pending }}
-        with:
-          retries: 3
-          script: |
-            if (process.env.OFFICIAL_REVIEW_PENDING === 'true') {
-              core.setOutput('should-release', 'false');
-              return;
-            }
-            if (context.ref.startsWith('refs/tags/') || context.eventName === 'release') {
-              core.setOutput('should-release', process.env.LPK_PATH ? 'true' : 'false');
-              return;
-            }
-            if (process.env.UPDATE_STRATEGY === 'publish' && process.env.DRY_RUN !== 'true' && context.eventName !== 'pull_request') {
-              const packageId = process.env.PACKAGE_ID;
-              const version = process.env.VERSION;
-              if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(packageId) || !/^[0-9][0-9A-Za-z.+-]*$/.test(version)) {
-                core.setFailed('Package ID or version is unsafe for Release recovery');
-                return;
-              }
-              const expectedAssetName = `${packageId}-v${version}.lpk`;
-              try {
-                const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
-                if (process.env.VERSIONED_RELEASE_ASSET === 'true' && !release.data.assets.some(asset => asset.name === expectedAssetName)) {
-                  core.setOutput('should-release', 'true');
-                  return;
-                }
-                core.setOutput('should-release', 'false');
-                return;
-              } catch (error) {
-                if (error.status === 404) {
-                  core.setOutput('should-release', 'true');
-                  return;
-                }
-                throw error;
-              }
-            }
-            if (!process.env.LPK_PATH) {
-              core.setOutput('should-release', 'false');
-              return;
-            }
-            const repository = await github.rest.repos.get(context.repo);
-            const defaultRef = `refs/heads/${repository.data.default_branch}`;
-            if (context.eventName !== 'push' || context.ref !== defaultRef) {
-              core.setOutput('should-release', 'false');
-              return;
-            }
-            try {
-              await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
-              core.setOutput('should-release', 'false');
-            } catch (error) {
-              if (error.status === 404) {
-                core.setOutput('should-release', 'true');
-                return;
-              }
-              throw error;
-            }
-
-      - name: Build missing Release artifact
-        id: recovery-build
-        if: steps.release-state.outputs.should-release == 'true' && steps.lazycat.outputs.lpk-path == '' && !inputs.dry-run
+      - name: Publish to LazyCat official store
+        id: publish
+        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.lazycat.outputs.lpk-path != '' && steps.lazycat.outputs.official-review-pending != 'true' && !inputs.dry-run
         uses: wcaqrl/lazycat-action@v1
         env:
           LZC_API_HOST: ${{ secrets.LZC_API_HOST }}
           LZC_API_TOKEN: ${{ secrets.LZC_API_TOKEN }}
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
-          LAZYCAT_WORKFLOW_TOOLCHAINS: ${{ steps.toolchains.outputs.normalized }}
-          LAZYCAT_WORKFLOW_GO_VERSION: ${{ inputs.go-version }}
-          LAZYCAT_WORKFLOW_NODE_VERSION: ${{ inputs.node-version }}
-          LAZYCAT_WORKFLOW_RUST_TOOLCHAIN: ${{ inputs.rust-toolchain }}
-          SOURCE_DATE_EPOCH: ${{ steps.source-date.outputs.epoch }}
-        with:
-          operation: build
-          config: ${{ inputs.config }}
-          version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ steps.release-notes.outputs.value }}
-          dry-run: false
-
-      - name: Upload recovered validation Artifact
-        if: steps.recovery-build.outputs.lpk-path != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: lpk-${{ steps.lazycat.outputs.version }}
-          path: ${{ steps.recovery-build.outputs.lpk-path }}
-          if-no-files-found: error
-
-      - name: Select Release build artifact
-        id: release-build
-        if: steps.release-state.outputs.should-release == 'true'
-        shell: bash
-        env:
-          PRIMARY_LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
-          PRIMARY_SHA256: ${{ steps.lazycat.outputs.sha256 }}
-          RECOVERY_LPK_PATH: ${{ steps.recovery-build.outputs.lpk-path }}
-          RECOVERY_SHA256: ${{ steps.recovery-build.outputs.sha256 }}
-        run: |
-          set -euo pipefail
-          lpk_path="${PRIMARY_LPK_PATH}"
-          sha256="${PRIMARY_SHA256}"
-          if [[ -z "${lpk_path}" ]]; then
-            lpk_path="${RECOVERY_LPK_PATH}"
-            sha256="${RECOVERY_SHA256}"
-          fi
-          if [[ -z "${lpk_path}" || ! -f "${lpk_path}" || ! "${sha256}" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "Verified Release LPK path and SHA256 are required" >&2
-            exit 1
-          fi
-          delimiter="lazycat_release_build"
-          {
-            echo "lpk-path<<${delimiter}"
-            printf '%s\n' "${lpk_path}"
-            echo "${delimiter}"
-            echo "sha256=${sha256}"
-          } >>"${GITHUB_OUTPUT}"
-
-      - name: Prepare Release asset
-        id: release-asset
-        if: steps.release-state.outputs.should-release == 'true'
-        shell: bash
-        env:
-          LPK_PATH: ${{ steps.release-build.outputs.lpk-path }}
-          PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
-          VERSION: ${{ steps.lazycat.outputs.version }}
-          VERSIONED_RELEASE_ASSET: ${{ inputs.versioned-release-asset }}
-        run: |
-          set -euo pipefail
-          if [[ -z "${LPK_PATH}" || -z "${PACKAGE_ID}" || -z "${VERSION}" ]]; then
-            echo "LPK path, package ID, and version are required to prepare a Release asset" >&2
-            exit 1
-          fi
-          if [[ ! "${PACKAGE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || ! "${VERSION}" =~ ^[0-9][0-9A-Za-z.+-]*$ ]]; then
-            echo "Package ID or version is unsafe for a Release asset filename" >&2
-            exit 1
-          fi
-          asset_path="${LPK_PATH}"
-          if [[ "${VERSIONED_RELEASE_ASSET}" == "true" ]]; then
-            asset_dir="$(dirname -- "${LPK_PATH}")"
-            asset_path="${asset_dir}/${PACKAGE_ID}-v${VERSION}.lpk"
-            cp -- "${LPK_PATH}" "${asset_path}"
-          fi
-          delimiter="lazycat_release_asset"
-          while grep -Fxq "${delimiter}" <<<"${asset_path}"; do
-            delimiter="${delimiter}_x"
-          done
-          {
-            echo "lpk-path<<${delimiter}"
-            printf '%s\n' "${asset_path}"
-            echo "${delimiter}"
-          } >>"${GITHUB_OUTPUT}"
-
-      - name: Check remote Release tag
-        id: release-tag
-        if: steps.release-state.outputs.should-release == 'true'
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-        run: |
-          set -euo pipefail
-          tag_ref="refs/tags/${RELEASE_TAG}"
-          if ! git check-ref-format "${tag_ref}"; then
-            echo "invalid Release tag ${RELEASE_TAG}" >&2
-            exit 1
-          fi
-          if git ls-remote --exit-code --refs origin "${tag_ref}" >/dev/null; then
-            echo "Remote Release tag ${RELEASE_TAG} already exists; reusing it."
-            echo "exists=true" >>"${GITHUB_OUTPUT}"
-            exit 0
-          else
-            status=$?
-          fi
-          if [[ "${status}" -eq 2 ]]; then
-            echo "Remote Release tag ${RELEASE_TAG} does not exist; the Release step may create it."
-            echo "exists=false" >>"${GITHUB_OUTPUT}"
-            exit 0
-          fi
-          echo "Failed to inspect remote Release tag ${RELEASE_TAG}" >&2
-          exit "${status}"
-
-      - name: Inspect existing Release Asset
-        id: asset-check
-        if: steps.release-state.outputs.should-release == 'true'
-        uses: actions/github-script@v9
-        env:
-          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-          LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
-          LPK_SHA256: ${{ steps.release-build.outputs.sha256 }}
-        with:
-          retries: 3
-          script: |
-            const path = require('path');
-            const tag = process.env.RELEASE_TAG;
-            const assetName = path.basename(process.env.LPK_PATH);
-            try {
-              const release = await github.rest.repos.getReleaseByTag({...context.repo, tag});
-              const asset = release.data.assets.find(item => item.name === assetName);
-              if (!asset) {
-                core.setOutput('skip-upload', 'false');
-                return;
-              }
-              const expected = `sha256:${process.env.LPK_SHA256}`;
-              if (!asset.digest) {
-                core.setFailed(`Existing asset ${assetName} has no digest and cannot be safely reused`);
-                return;
-              }
-              if (asset.digest !== expected) {
-                core.setFailed(`Existing asset ${assetName} has digest ${asset.digest}, expected ${expected}`);
-                return;
-              }
-              core.setOutput('skip-upload', 'true');
-              core.setOutput('download-url', asset.browser_download_url);
-            } catch (error) {
-              if (error.status === 404) {
-                core.setOutput('skip-upload', 'false');
-                return;
-              }
-              throw error;
-            }
-
-      - name: Upload GitHub Release Asset
-        if: steps.asset-check.outcome == 'success' && steps.asset-check.outputs.skip-upload != 'true'
-        uses: softprops/action-gh-release@v3
-        with:
-          tag_name: ${{ steps.lazycat.outputs.tag }}
-          name: ${{ steps.lazycat.outputs.tag }}
-          body: ${{ inputs.changelog }}
-          target_commitish: ${{ steps.release-tag.outputs.exists != 'true' && (steps.direct-commit.outputs.commit != '' && steps.direct-commit.outputs.commit || github.sha) || '' }}
-          files: ${{ steps.release-asset.outputs.lpk-path }}
-          fail_on_unmatched_files: true
-
-      - name: Resolve Release Asset URL
-        id: asset-url
-        if: steps.asset-check.outcome == 'success'
-        uses: actions/github-script@v9
-        env:
-          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-          LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
-          LPK_SHA256: ${{ steps.release-build.outputs.sha256 }}
-        with:
-          retries: 3
-          script: |
-            const path = require('path');
-            const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
-            const assetName = path.basename(process.env.LPK_PATH);
-            const asset = release.data.assets.find(item => item.name === assetName);
-            if (!asset) {
-              core.setFailed(`Release asset ${assetName} is missing`);
-              return;
-            }
-            const expected = `sha256:${process.env.LPK_SHA256}`;
-            if (asset.digest !== expected) {
-              core.setFailed(`Release asset ${assetName} digest ${asset.digest} does not match ${expected}`);
-              return;
-            }
-            core.setOutput('download-url', asset.browser_download_url);
-
-      - name: Locate existing Release Asset for store reconciliation
-        id: existing-asset
-        if: steps.asset-url.outputs.download-url == '' && steps.lazycat.outputs.official-review-pending != 'true' && steps.lazycat.outputs.update-strategy == 'publish' && (steps.lazycat.outputs.official-store-enabled == 'true' || steps.lazycat.outputs.private-store-enabled == 'true') && !inputs.dry-run
-        uses: actions/github-script@v9
-        env:
-          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-          PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
-          VERSION: ${{ steps.lazycat.outputs.version }}
-        with:
-          retries: 3
-          script: |
-            const packageId = process.env.PACKAGE_ID;
-            const version = process.env.VERSION;
-            if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(packageId) || !/^[0-9][0-9A-Za-z.+-]*$/.test(version)) {
-              core.setFailed('Package ID or version is unsafe for Release reconciliation');
-              return;
-            }
-            const assetName = `${packageId}-v${version}.lpk`;
-            try {
-              const release = await github.rest.repos.getReleaseByTag({...context.repo, tag: process.env.RELEASE_TAG});
-              const asset = release.data.assets.find(item => item.name === assetName);
-              if (!asset) return;
-              if (!/^sha256:[0-9a-f]{64}$/.test(asset.digest || '')) {
-                core.setFailed(`Release asset ${assetName} has no trusted SHA256 digest`);
-                return;
-              }
-              core.setOutput('asset-id', String(asset.id));
-              core.setOutput('asset-name', assetName);
-              core.setOutput('download-url', asset.browser_download_url);
-              core.setOutput('sha256', asset.digest.slice('sha256:'.length));
-            } catch (error) {
-              if (error.status !== 404) throw error;
-            }
-
-      - name: Download existing Release Asset for store reconciliation
-        id: recovered-asset
-        if: steps.existing-asset.outputs.asset-id != ''
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ steps.lazycat.outputs.tag }}
-          ASSET_NAME: ${{ steps.existing-asset.outputs.asset-name }}
-          EXPECTED_SHA256: ${{ steps.existing-asset.outputs.sha256 }}
-        run: |
-          set -euo pipefail
-          directory="${GITHUB_WORKSPACE}/.lazycat-action/release-assets"
-          mkdir -p -- "${directory}"
-          gh release download "${RELEASE_TAG}" --pattern "${ASSET_NAME}" --dir "${directory}" --clobber
-          path="${directory}/${ASSET_NAME}"
-          actual_sha256="$(sha256sum "${path}" | cut -d' ' -f1)"
-          if [[ "${actual_sha256}" != "${EXPECTED_SHA256}" ]]; then
-            echo "Downloaded Release asset SHA256 does not match GitHub digest" >&2
-            exit 1
-          fi
-          delimiter="lazycat_recovered_asset"
-          {
-            echo "lpk-path<<${delimiter}"
-            printf '%s\n' "${path}"
-            echo "${delimiter}"
-          } >>"${GITHUB_OUTPUT}"
-
-      - name: Select verified store artifact
-        id: store-artifact
-        if: steps.asset-url.outputs.download-url != '' || steps.recovered-asset.outputs.lpk-path != ''
-        shell: bash
-        env:
-          BUILT_LPK_PATH: ${{ steps.release-asset.outputs.lpk-path }}
-          BUILT_DOWNLOAD_URL: ${{ steps.asset-url.outputs.download-url }}
-          BUILT_SHA256: ${{ steps.release-build.outputs.sha256 }}
-          RECOVERED_LPK_PATH: ${{ steps.recovered-asset.outputs.lpk-path }}
-          RECOVERED_DOWNLOAD_URL: ${{ steps.existing-asset.outputs.download-url }}
-          RECOVERED_SHA256: ${{ steps.existing-asset.outputs.sha256 }}
-        run: |
-          set -euo pipefail
-          lpk_path="${BUILT_LPK_PATH}"
-          download_url="${BUILT_DOWNLOAD_URL}"
-          sha256="${BUILT_SHA256}"
-          if [[ -z "${download_url}" ]]; then
-            lpk_path="${RECOVERED_LPK_PATH}"
-            download_url="${RECOVERED_DOWNLOAD_URL}"
-            sha256="${RECOVERED_SHA256}"
-          fi
-          if [[ -z "${lpk_path}" || -z "${download_url}" || ! "${sha256}" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "Verified LPK path, Release URL, and SHA256 are required for store publishing" >&2
-            exit 1
-          fi
-          delimiter="lazycat_store_artifact"
-          {
-            echo "lpk-path<<${delimiter}"
-            printf '%s\n' "${lpk_path}"
-            echo "${delimiter}"
-            echo "download-url<<${delimiter}"
-            printf '%s\n' "${download_url}"
-            echo "${delimiter}"
-            echo "sha256=${sha256}"
-          } >>"${GITHUB_OUTPUT}"
-
-      - name: Publish to MiaoMiao private store
-        id: publish-private
-        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.private-store-enabled == 'true' && steps.store-artifact.outputs.download-url != '' && !inputs.dry-run
-        uses: wcaqrl/lazycat-action@v1
-        env:
-          APPSTORE_URL: ${{ secrets.APPSTORE_URL }}
-          APPSTORE_TOKEN: ${{ secrets.APPSTORE_TOKEN }}
-          APP_ID: ${{ secrets.APP_ID }}
-          PRIVATE_STORE_GROUP_CODES: ${{ secrets.PRIVATE_STORE_GROUP_CODES }}
-        with:
-          operation: publish-private
-          config: ${{ inputs.config }}
-          version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ steps.release-notes.outputs.value }}
-          lpk-path: ${{ steps.store-artifact.outputs.lpk-path }}
-          download-url: ${{ steps.store-artifact.outputs.download-url }}
-          sha256: ${{ steps.store-artifact.outputs.sha256 }}
-
-      - name: Publish to LazyCat official platform
-        id: publish-official
-        if: ${{ !cancelled() && steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.store-artifact.outputs.download-url != '' && !inputs.dry-run }}
-        continue-on-error: true
-        uses: wcaqrl/lazycat-action@v1
-        env:
-          LZC_API_HOST: ${{ secrets.LZC_API_HOST }}
-          LZC_API_TOKEN: ${{ secrets.LZC_API_TOKEN }}
-          LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
-          LAZYCAT_GUARD_OFFICIAL_REVIEW: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') && inputs.operation == 'auto' }}
+          LAZYCAT_GUARD_OFFICIAL_REVIEW: "true"
         with:
           operation: publish-official
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ steps.release-notes.outputs.value }}
-          lpk-path: ${{ steps.store-artifact.outputs.lpk-path }}
-          sha256: ${{ steps.store-artifact.outputs.sha256 }}
+          changelog: ${{ inputs.changelog || format('Release {0}', steps.lazycat.outputs.version) }}
+          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
+          sha256: ${{ steps.lazycat.outputs.sha256 }}
 
-      - name: Merge store publishing results
-        id: store-results
-        if: ${{ always() && !cancelled() }}
-        uses: actions/github-script@v9
+      - name: Commit submitted state
+        if: steps.publish.outcome == 'success' && steps.publish.outputs.state-file != '' && !inputs.dry-run
+        shell: bash
         env:
-          OFFICIAL_OUTCOME: ${{ steps.publish-official.outcome }}
-          OFFICIAL_RESULT: ${{ steps.publish-official.outputs.store-results }}
-          PRIVATE_RESULT: ${{ steps.publish-private.outputs.store-results }}
-        with:
-          script: |
-            const result = {};
-            for (const raw of [process.env.OFFICIAL_RESULT, process.env.PRIVATE_RESULT]) {
-              if (!raw) continue;
-              const parsed = JSON.parse(raw);
-              Object.assign(result, parsed);
-            }
-            if (process.env.OFFICIAL_OUTCOME === 'failure') {
-              result.official = {
-                published: false,
-                failed: true,
-                failureReason: 'official-publish-failed',
-              };
-              core.warning('Official store publication failed; other configured store results are preserved.');
-              await core.summary
-                .addHeading('LazyCat official store')
-                .addRaw('Official store publication failed. Other configured store results were preserved. Review the official publishing step for the safe error code, HTTP status, and operation.\n')
-                .write();
-            }
-            core.setOutput('store-results', JSON.stringify(result));
-
-      - name: Enforce official-only publication failure
-        if: ${{ !cancelled() && steps.publish-official.outcome == 'failure' && steps.lazycat.outputs.private-store-enabled != 'true' }}
-        run: |
-          echo "Official store publication failed and no private store target is configured." >&2
-          exit 1
-
-      - name: Sync tag/release version to default branch
-        if: steps.store-artifact.outputs.download-url != '' && steps.lazycat.outputs.changed == 'true' && (github.ref_type == 'tag' || github.event_name == 'release')
-        uses: actions/github-script@v9
-        env:
-          PACKAGE_FILE: ${{ steps.lazycat.outputs.package-file }}
+          STATE_FILE: ${{ steps.publish.outputs.state-file }}
           VERSION: ${{ steps.lazycat.outputs.version }}
-        with:
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            const absolute = path.resolve(process.env.PACKAGE_FILE);
-            const relative = path.relative(process.env.GITHUB_WORKSPACE, absolute).split(path.sep).join('/');
-            if (!relative || relative.startsWith('../')) {
-              core.setFailed(`package.yml path escapes the workspace: ${absolute}`);
-              return;
-            }
-            const repository = await github.rest.repos.get(context.repo);
-            const branch = repository.data.default_branch;
-            const current = await github.rest.repos.getContent({...context.repo, path: relative, ref: branch});
-            if (Array.isArray(current.data) || current.data.type !== 'file') {
-              core.setFailed(`${relative} is not a file on ${branch}`);
-              return;
-            }
-            const content = fs.readFileSync(absolute);
-            const existing = Buffer.from(current.data.content, 'base64');
-            if (existing.equals(content)) {
-              return;
-            }
-            await github.rest.repos.createOrUpdateFileContents({
-              ...context.repo,
-              path: relative,
-              branch,
-              sha: current.data.sha,
-              message: `chore: sync package version to ${process.env.VERSION} [skip ci]`,
-              content: content.toString('base64'),
-            });
+        run: |
+          set -euo pipefail
+          git add -- "${STATE_FILE}"
+          if ! git diff --cached --quiet; then
+            git commit -m "chore: record LazyCat submission ${VERSION} [skip ci]"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi

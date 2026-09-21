@@ -1,112 +1,12 @@
 [
   {
-    "id": "dual-store-deduplication",
-    "prompt": "这个项目通过 release 同时发布到懒猫官方商店和喵喵私有商店。请配置 Action：如果精确包名对应的线上最新版本已经等于本次 LPK 版本，就不要重复提交。喵喵应用只对两个私有分组可见。给出配置和 Secret 设置方式。",
-    "expected": "同时启用两个 skip_if_version_exists 开关；把分组码作为逗号分隔的 PRIVATE_STORE_GROUP_CODES GitHub Secret；说明相同版本跳过、NotFound 继续、其他查询错误失败，且不把分组码写入 YAML 或普通 input。"
+    "id": "branch-without-tags",
+    "prompt": "目标 Gitee 仓库没有 Tag，默认分支有更新时自动发布。",
+    "expected": "自动发现默认分支，比较 commit SHA，并独立增加懒猫应用 patch 版本。"
   },
   {
-    "id": "official-image-project",
-    "prompt": "为一个包含 db 和 web 两个 service 的 LazyCat Docker 项目生成定时更新配置。web 驱动应用版本并发布官方商店，db 不受 Action 管理。希望避免官方商店已存在相同版本时再次提交；如果 0.10.55 正在审核但 web 已选出 0.10.56，则继续自动提交新版。",
-    "expected": "显式把 web 设为 version_source 和 service target；只配置 web image；使用 lazycat delivery；官方商店启用 skip_if_version_exists，并保留默认启用的 continue_if_newer_version: true。审核版本等于或高于同一次选出的候选时暂停，审核版本更旧时在 mirror/懒猫交付和文件写入前完成比较并用同一候选继续；官方上传前用最终校验 LPK 版本再次认证复查；Git 版本源和无效 SemVer 安全停止；保持 linux/amd64 目标，不错误管理 db。"
-  },
-  {
-    "id": "private-secret-boundary-review",
-    "prompt": "评审下面的想法：把喵喵商店分组码直接写进 .github/lazycat-action.yml，再通过 private-group-codes Action input 传入，这样最方便。项目使用 mirror 镜像并只发布喵喵商店。请指出问题并给出安全配置。",
-    "expected": "明确拒绝把分组码写入仓库 YAML 或普通 Action input；改用 PRIVATE_STORE_GROUP_CODES GitHub Secret/环境变量；保留 private-only、mirror 合法性；说明 Cookie 和重定向隔离及避免输出泄露。"
-  },
-  {
-    "id": "automatic-workflow-creation",
-    "prompt": "检查当前 LazyCat 项目，直接帮我创建定时检查镜像和 release 发布需要的 GitHub workflows，不要只给示例。",
-    "expected": "先检查 package/build/manifest 和现有 workflows；在授权范围内创建或更新 .github/lazycat-action.yml 与 .github/workflows/*.yml；保留无关 jobs；运行 actionlint；报告文件、Secrets 和未决占位值。"
-  },
-  {
-    "id": "historical-lpk-migration",
-    "prompt": "这个 LazyCat 应用仓库里有很多历史 LPK。请迁移为 GitHub Release 自动发布带明确版本号的 LPK，同时发布官方商店和喵喵私有商店。你可以直接处理。",
-    "expected": "先用 git ls-files '*.lpk' 清点并报告 tracked LPK 数量、总字节和路径；在删除前可见 STOP 并要求明确 yes/no，即使用户已说可以直接处理；拒绝时保留全部文件，批准时只删除已清点文件、验证 tracked 数量并添加 *.lpk/输出目录 ignore；不擅自重写历史或回填旧 Release；设置 versioned-release-asset: true，使用 <package-id>-v<version>.lpk；私有商店使用已验证 Release Asset URL/SHA256，官方商店上传相同的本地已验证 LPK 字节/SHA256 而不接收该 URL。"
-  },
-  {
-    "id": "go-template-manifest-preservation",
-    "prompt": "Manifest 有 Go Template 条件块。请自动创建 GitHub workflows 更新两个镜像并发布商店，不要破坏模板。",
-    "expected": "在 YAML 处理前识别独立 if/else/end/with/range 控制行；绝不执行或求值模板；逐字节保护并恢复控制行、缩进和 trim marker，内联表达式保持原样；marker 冲突、丢失/重复、受保护 YAML 无效、镜像目标歧义或模板 diff 异常时 fail closed；对比前后控制行并运行真实 LazyCat build/validation；仍须确认无法从仓库证明的版本来源镜像和商店集合。"
-  },
-  {
-    "id": "release-store-reconciliation",
-    "prompt": "GitHub Release 已经有 community.example-v1.2.3.lpk，但官方商店缺 1.2.3，喵喵商店已经是 1.2.3。每天的 Action 应该怎么自动补偿？",
-    "expected": "只下载当前 Tag 下精确命名的版本化 LPK，验证 GitHub sha256 digest 和本地 SHA256；官方商店补交，喵喵商店按 skip_if_version_exists 独立跳过；不重建、不改名、不猜测其他 asset。"
-  },
-  {
-    "id": "named-version-template-groups",
-    "prompt": "上游镜像标签是 20260603.01，应用版本必须是合法 SemVer 20260603.1.0。请生成版本规则，不要写仓库专用脚本。",
-    "expected": "使用带 version 和 build 命名捕获组的 version_regex，并用 {version}.{build}.0 模板展开为 20260603.1.0；未知占位符或非 SemVer 结果 fail closed。"
-  },
-  {
-    "id": "date-tag-leading-zero-normalization",
-    "prompt": "GHCR 镜像使用 20260626、20260101 这类八位日期标签。请增加日期类型并配置正则模板，确保月份和日期小于 10 时仍能生成严格 SemVer。",
-    "expected": "使用 channel: date（与 stable 相同的 SemVer 排序），tag_regex 匹配完整日期族，version_regex 使用 version、month、day 命名组，version_template 使用 {version}.{month}.{day}；模板展开后统一去掉 SemVer 三个数字核心字段的前导零，20260626 映射为 2026.6.26、20260101 映射为 2026.1.1；已有显式 0* 捕获组写法保持兼容，不写仓库专用脚本或 allow_downgrade: true。"
-  },
-  {
-    "id": "private-name-fallback",
-    "prompt": "喵喵商店已经有这个应用，但按 packageId 搜不到，只能按应用名称搜到，而且我不想配置 APP_ID。自动 workflow 应该怎么处理？",
-    "expected": "保留确认过的 stores.private.name；先按精确 packageId 查询，再调用带 Token 的 /api/v1/apps/by-name 按应用名称精确解析可上传应用；允许该历史应用保留不同 packageId，仅用返回 ID 增加版本；404 才创建，401/403/409 或不精确结果必须停止。"
-  },
-  {
-    "id": "image-version-downgrade-guard",
-    "prompt": "镜像仓库按创建时间选中了最近重建的 18.0，但 package.yml 已经是 19.0.0。请优化自动 workflow，避免它降级；如果我以后确实要回退怎么办？",
-    "expected": "保持或显式设置 update.allow_downgrade: false；在镜像复制和文件写入前比较映射后的 SemVer，返回 VERSION_DOWNGRADE_BLOCKED；同版本 digest 更新继续允许；只有用户明确确认回退时才设置 allow_downgrade: true。"
-  },
-  {
-    "id": "official-file-upload-stage",
-    "prompt": "GitHub Release 已有校验过的 LPK，但官方商店提交返回 HTTP 400。请判断官方是否应该接收 Release URL，并说明如何区分失败阶段。",
-    "expected": "官方只接收重新下载并校验后的本地 LPK 文件 multipart 上传，不接收 Release URL；store.official.upload 表示文件上传失败，store.official.review 表示上传后创建审核失败；不得打印上游响应正文或盲目重复提交。"
-  },
-  {
-    "id": "rust-protobuf-toolchain",
-    "prompt": "Rust + Node 源码项目在 GitHub Tag 构建时报 failed to spawn protoc，Ubuntu 自带 protoc 又不支持 edition = \"2023\"。请修复 workflow，但不要修改 Rust 源码、build.rs 或 Proto 定义。",
-    "expected": "保留 Edition 2023 和生成 API 语义；从 protocolbuffers/protobuf GitHub Release 下载固定版本 protoc，校验 SHA256 并输出 protoc --version；把依赖安装放进 PR 与 Tag reusable workflow 都会执行的共享 buildscript 路径；不得把 Proto 改成 proto3，也不得修改 Rust 源码或 build.rs。"
-  },
-  {
-    "id": "store-online-version-downgrade-guard",
-    "prompt": "EasyNVR 的 LPK 是 7.7.406，但官方商店在线版本已经是 7.8.138，官方审核返回 400。自动 workflow 应如何处理？",
-    "expected": "保持 update.allow_downgrade: false；在读取写凭据前按 SemVer 比较候选 7.7.406 与线上 7.8.138，官方商店独立返回 skipped: true、onlineVersion: 7.8.138 和 skipReason: online-version-newer，喵喵商店按自身在线版本独立发布或跳过；不得盲目重试或自动允许降级。版本相等使用 version-already-online；non-SemVer 只做精确相等判断。"
-  },
-  {
-    "id": "official-retry-and-failure-isolation",
-    "prompt": "官方商店偶发 500，也有重复审核返回 400；项目同时发布官方和喵喵商店。请配置安全重试并说明失败如何影响整个 GitHub Action，以及能否显示官方错误消息。",
-    "expected": "配置 retry，默认 enabled: false；显式说明 max_attempts、initial_delay、max_delay。上传/检查阶段可重试无状态网络错误、429 和 5xx；审核创建只重试 429，审核网络错误或 5xx 不重放，400 也不重试。双商店时保留私有商店结果并把官方失败降级为 warning；官方唯一目标仍失败。只显示经过限制和脱敏的 JSON message，不打印原始响应正文或凭据。container_name 等兼容性 warning 不阻断。"
-  },
-  {
-    "id": "updated-tag-and-target-architecture",
-    "prompt": "Docker Hub 的 v1.2.15 比 v1.2.26 更晚更新，希望更新时间优先；同时目标懒猫设备未来可能是 ARM64，但其他项目仍保持原默认值。",
-    "expected": "为该镜像显式设置 sort: updated，按 Docker Hub last_updated 选择 v1.2.15 而不是 SemVer 更高但更早更新的 v1.2.26；不要复用 sort: created。project.target_arch 为可选项目级参数，默认 amd64，可显式设置 arm64，并贯穿 OCI 检查、复制、构建和 LPK 输出。更新时间排序不关闭 allow_downgrade: false；若会降低当前 package 版本，仍需单独明确授权。"
-  },
-  {
-    "id": "node24-action-runtime",
-    "prompt": "我用 composite Action 自己写 checkout 和 Node setup，GitHub 提示 Node.js 20 已弃用。请更新生成规则。",
-    "expected": "说明官方 JavaScript Actions 必须使用 Node.js 24 兼容主版本：actions/checkout@v7 和 actions/setup-node@v7；生成或更新 caller-owned workflow 时不得生成 checkout/setup-node @v4。"
-  },
-  {
-    "id": "pat-default-legacy-opt-in",
-    "prompt": "新项目已经配置并验证了 LZC_API_TOKEN PAT，仓库里还残留一个旧的 LAZYCAT_TOKEN Secret。请生成官方商店发布 workflow 的 Secret 映射。",
-    "expected": "默认只映射 LZC_API_TOKEN；LAZYCAT_TOKEN 仅用于尚未迁移 PAT、仍明确依赖 lzc-cli 会话认证的历史 caller；不得同时映射两个凭据作为通用 fallback，也不得使用 secrets: inherit 无差别传递。"
-  },
-  {
-    "id": "evolvable-version-selection",
-    "prompt": "上游镜像当前版本是 2.2.0，请生成定时自动获取后续稳定版本的规则，不要让它锁死在当前版本。",
-    "expected": "先识别上游标签族，再选择 stable channel 和 semver sort；tag_regex 必须匹配未来版本族，不得写成 ^2\\.2\\.0$。如果跟踪所有稳定版本可省略正则或使用通用 SemVer 族；如果只跟踪 2.x，则使用 ^v?2\\.\\d+\\.\\d+$。version_regex 仅用于非标准标签映射；只有 latest 等可变标签才使用精确 tag_regex 并配合 digest/bump。"
-  },
-  {
-    "id": "major-line-version-selection",
-    "prompt": "应用现在使用 v2.2.0，只允许自动升级 v2 的 patch/minor，不能进入 v3。版本筛选怎么写？",
-    "expected": "使用 channel: stable、sort: semver 和可持续匹配未来 v2 版本的 tag_regex: '^v?2\\.\\d+\\.\\d+$'；当前 2.2.0 只是候选之一，不能生成精确固定正则。说明该规则会选择未来最高 v2 SemVer并排除 v3。"
-  },
-  {
-    "id": "tag-filter-version-mapping-separation",
-    "prompt": "上游标签是 release-20260807.03，后续会持续发布同格式标签。请映射为 20260807.3.0 并自动选择最新版本。",
-    "expected": "tag_regex 筛选整个 release- 日期.构建号标签族；version_regex 使用 (?P<version>...) 和 (?P<build>...) 命名捕获组；version_template 使用 {version}.{build}.0；sort 负责选择最新候选。不得把当前 release-20260807.03 写成精确固定筛选，也不得用仓库专用脚本代替映射。"
-  },
-  {
-    "id": "mixed-weekly-lts-version-selection",
-    "prompt": "同一个 Docker Hub 仓库同时有两段周更标签 2.578、三段 LTS 标签 2.568.2、2.578-jdk21 等 JDK 变体和 latest。应用只跟踪周更版本，package.yml 已是 2.578.0；默认 stable 选到 LTS 后触发 VERSION_DOWNGRADE_BLOCKED，改成 updated 又报 CONFIG_INVALID。请修复自动更新规则。",
-    "expected": "把两段周更、三段 LTS、JDK 变体和 mutable alias 识别为不同标签族；使用 channel: custom、sort: semver 和可匹配未来纯两段版本的 tag_regex；用带 (?P<version>...) 的 version_regex 与 {version}.0 模板把 2.578 映射为严格 SemVer 2.578.0。保持 allow_downgrade: false，不得使用 sort: updated 或仓库专用脚本掩盖错误的候选族。"
+    "id": "recipe-change",
+    "prompt": "上游版本不变，但 Dockerfile 和插件列表修改了。",
+    "expected": "构建配方 Hash 进入指纹，因此仍然重新构建和提交官方审核。"
   }
 ]

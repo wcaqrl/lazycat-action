@@ -327,14 +327,9 @@ stores:
         - .github/screenshots/mobile-one.png
         - .github/screenshots/mobile-two.png
         - .github/screenshots/mobile-three.png
-  private:
-    enabled: true
-    skip_if_version_exists: true
-    name: " Private Example "
-    summary: " Private summary "
 `,
 			check: func(t *testing.T, got config.Config) {
-				if !got.Stores.Official.SkipIfVersionExists || !got.Stores.Private.SkipIfVersionExists {
+				if !got.Stores.Official.SkipIfVersionExists {
 					t.Fatalf("store deduplication=%#v", got.Stores)
 				}
 				if strings.Join(got.Stores.Official.Locales, ",") != "zh,en" {
@@ -346,9 +341,6 @@ stores:
 				}
 				if !application.SupportPC || !application.SupportMobile || strings.Join(application.ScreenshotPCFiles, ",") != ".github/screenshots/pc-one.png,.github/screenshots/pc-two.jpg" || len(application.ScreenshotMobileFiles) != 3 {
 					t.Fatalf("official application screenshots=%#v", application)
-				}
-				if got.Stores.Private.Name != "Private Example" || got.Stores.Private.Summary != "Private summary" {
-					t.Fatalf("private store=%#v", got.Stores.Private)
 				}
 			},
 		},
@@ -362,11 +354,9 @@ update:
 stores:
   official:
     enabled: true
-  private:
-    enabled: true
 `,
 			check: func(t *testing.T, got config.Config) {
-				if got.Stores.Official.SkipIfVersionExists || got.Stores.Private.SkipIfVersionExists {
+				if got.Stores.Official.SkipIfVersionExists {
 					t.Fatalf("store deduplication should default off: %#v", got.Stores)
 				}
 			},
@@ -868,5 +858,62 @@ func TestLoadRejectsOversizedConfiguration(t *testing.T) {
 	}
 	if _, err := config.Load(filename); err == nil {
 		t.Fatal("expected oversized configuration to fail")
+	}
+}
+
+func TestLoadVersion2GitSourcePipeline(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "lazycat.yml")
+	data := []byte(`version: 2
+project:
+  output: dist/app.lpk
+source:
+  kind: git
+  url: git@gitee.com:example/private-app.git
+  auth_ref: source
+  select:
+    strategy: branch-head
+    branch: auto
+update:
+  strategy: publish
+build:
+  prepare:
+    mode: command
+    context: scripts
+    command: ./scripts/build.sh
+stores:
+  official:
+    enabled: true
+`)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.Load(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source.Kind != config.SourceKindGit || got.Source.Select.Branch != "auto" || got.Source.AuthRef != "source" {
+		t.Fatalf("source=%#v", got.Source)
+	}
+	if got.State.File != ".lazycat-action.lock.yml" || got.Build.Prepare.Mode != "command" {
+		t.Fatalf("state/build=%#v %#v", got.State, got.Build.Prepare)
+	}
+}
+
+func TestLoadRejectsPrivateStoreField(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "lazycat.yml")
+	data := []byte(`version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  private:
+    enabled: true
+`)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(filename); err == nil || !strings.Contains(err.Error(), "field private not found") {
+		t.Fatalf("err=%v", err)
 	}
 }

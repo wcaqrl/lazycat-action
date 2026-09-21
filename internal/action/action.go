@@ -15,6 +15,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
+	lpkgo "github.com/lib-x/lzc-toolkit-go"
+	"github.com/lib-x/lzc-toolkit-go/appstore"
 	actionbuild "github.com/wcaqrl/lazycat-action/internal/build"
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/delivery"
@@ -22,15 +25,18 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/httpx"
 	"github.com/wcaqrl/lazycat-action/internal/imageflow"
 	"github.com/wcaqrl/lazycat-action/internal/imagemirror"
+	"github.com/wcaqrl/lazycat-action/internal/manifestedit"
+	"github.com/wcaqrl/lazycat-action/internal/pipelinestate"
 	"github.com/wcaqrl/lazycat-action/internal/platform"
 	"github.com/wcaqrl/lazycat-action/internal/platformauth"
+	"github.com/wcaqrl/lazycat-action/internal/prepare"
 	"github.com/wcaqrl/lazycat-action/internal/project"
 	"github.com/wcaqrl/lazycat-action/internal/publishflow"
 	"github.com/wcaqrl/lazycat-action/internal/registry"
+	"github.com/wcaqrl/lazycat-action/internal/source"
 	"github.com/wcaqrl/lazycat-action/internal/store/official"
+	"github.com/wcaqrl/lazycat-action/internal/versioning"
 	"github.com/wcaqrl/lazycat-action/internal/yamledit"
-	lpkgo "github.com/lib-x/lzc-toolkit-go"
-	"github.com/lib-x/lzc-toolkit-go/appstore"
 )
 
 const (
@@ -43,7 +49,6 @@ const (
 	CodePlatformNotFound         = "PLATFORM_NOT_FOUND"
 	CodeImageCopyFailed          = "IMAGE_COPY_FAILED"
 	CodeMirrorVerificationFailed = "MIRROR_VERIFICATION_FAILED"
-	CodeReleaseAssetMissing      = "RELEASE_ASSET_MISSING"
 	CodeStoreAuthFailed          = "STORE_AUTH_FAILED"
 	CodeStorePublishFailed       = "STORE_PUBLISH_FAILED"
 )
@@ -55,7 +60,6 @@ const (
 	OperationCheck           Operation = "check"
 	OperationBuild           Operation = "build"
 	OperationPublishOfficial Operation = "publish-official"
-	OperationPublishPrivate  Operation = "publish-private"
 )
 
 type Input struct {
@@ -67,7 +71,6 @@ type Input struct {
 	Channel               string
 	Changelog             string
 	LPKPath               string
-	DownloadURL           string
 	ExpectedSHA256        string
 	EventName             string
 	RefType               string
@@ -91,14 +94,15 @@ type Result struct {
 	Tag                   string          `json:"tag"`
 	LPKPath               string          `json:"lpkPath"`
 	SHA256                string          `json:"sha256"`
-	DownloadURL           string          `json:"downloadUrl,omitempty"`
 	ImageResults          json.RawMessage `json:"imageResults"`
+	SourceResult          json.RawMessage `json:"sourceResult"`
+	Fingerprint           string          `json:"fingerprint,omitempty"`
+	StateFile             string          `json:"stateFile,omitempty"`
 	StoreResults          json.RawMessage `json:"storeResults"`
 	UpdateStrategy        string          `json:"updateStrategy"`
 	OfficialStoreEnabled  bool            `json:"officialStoreEnabled"`
 	OfficialReviewPending bool            `json:"officialReviewPending"`
 	OfficialReviewVersion string          `json:"officialReviewVersion,omitempty"`
-	PrivateStoreEnabled   bool            `json:"privateStoreEnabled"`
 	Channel               string          `json:"channel,omitempty"`
 	ResultFile            string          `json:"resultFile"`
 	RunnerArch            string          `json:"runnerArch"`
@@ -171,6 +175,15 @@ type Dependencies struct {
 	SetVersion           func(string, string) (yamledit.Change, error)
 	Build                func(context.Context, actionbuild.Request) (actionbuild.Result, error)
 	CheckImages          func(context.Context, imageflow.Request) (imageflow.Result, error)
+	DiscoverSource       func(context.Context, source.Request) (source.Candidate, error)
+	PrepareSource        func(context.Context, prepare.Request) (prepare.Result, error)
+	InspectPreparedImage func(context.Context, string, platform.Target) (registry.Image, error)
+	DeliverPreparedImage func(context.Context, delivery.Request) (delivery.Result, error)
+	ReadManifestImages   func(string, []manifestedit.Target) ([]manifestedit.Current, error)
+	ApplyManifestImages  func(string, []manifestedit.Update) ([]manifestedit.Change, error)
+	ReadState            func(string) (pipelinestate.Lock, error)
+	WriteState           func(string, pipelinestate.Lock) error
+	Fingerprint          func(context.Context, config.Config, source.Candidate) (string, error)
 	WaitingReviewVersion func(context.Context, string) (string, bool, error)
 	Publish              func(context.Context, publishflow.Request) (publishflow.Result, error)
 }
@@ -191,6 +204,7 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	logger := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	builder := actionbuild.Builder{Logger: logger}
 	registryClient := registry.New()
+	sourceDiscoverer := source.Default(getenv)
 	resolver := platformauth.Resolver{}
 	storeClient := &platformImageCopier{resolver: resolver}
 	deliveryResolver := delivery.Resolver{Copier: storeClient, Inspector: registryClient, Mirrors: mirrors}
@@ -203,13 +217,24 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	publishFlow := publishflow.Default()
 	publishFlow.Logger = logger
 	return Dependencies{
-		Host:        host,
-		Logger:      logger,
-		LoadConfig:  config.Load,
-		Inspect:     project.Inspect,
-		SetVersion:  yamledit.SetPackageVersion,
-		Build:       builder.Build,
-		CheckImages: imageFlow.Check,
+		Host:           host,
+		Logger:         logger,
+		LoadConfig:     config.Load,
+		Inspect:        project.Inspect,
+		SetVersion:     yamledit.SetPackageVersion,
+		Build:          builder.Build,
+		CheckImages:    imageFlow.Check,
+		DiscoverSource: sourceDiscoverer.Discover,
+		PrepareSource: prepare.Runner{
+			Git: sourceDiscoverer.Git,
+		}.Prepare,
+		InspectPreparedImage: registryClient.InspectTarget,
+		DeliverPreparedImage: deliveryResolver.Deliver,
+		ReadManifestImages:   manifestedit.Read,
+		ApplyManifestImages:  manifestedit.Apply,
+		ReadState:            pipelinestate.Read,
+		WriteState:           pipelinestate.Write,
+		Fingerprint:          pipelinestate.Fingerprint,
 		WaitingReviewVersion: func(ctx context.Context, packageID string) (string, bool, error) {
 			resolved, err := resolver.Resolve(ctx)
 			if err != nil {
@@ -273,11 +298,14 @@ func ResolveOperation(input Input, cfg config.Config) (Operation, error) {
 	}
 	if operation != OperationAuto {
 		switch operation {
-		case OperationCheck, OperationBuild, OperationPublishOfficial, OperationPublishPrivate:
+		case OperationCheck, OperationBuild, OperationPublishOfficial:
 			return operation, nil
 		default:
 			return "", fmt.Errorf("unsupported operation %q", operation)
 		}
+	}
+	if cfg.Version == 2 && input.Version == "" {
+		return OperationCheck, nil
 	}
 	switch input.EventName {
 	case "release":
@@ -361,7 +389,7 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 		return runBuild(ctx, input, cfg, info, dependencies)
 	case OperationCheck:
 		return runCheck(ctx, input, cfg, info, officialReviewVersion, dependencies)
-	case OperationPublishOfficial, OperationPublishPrivate:
+	case OperationPublishOfficial:
 		return runPublish(ctx, input, operation, cfg, info, dependencies)
 	default:
 		return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("unsupported operation %q", operation), nil)
@@ -390,7 +418,7 @@ func shouldPauseForOfficialReview(input Input, requested, resolved Operation, cf
 	if input.DryRun || requested != OperationAuto || cfg.Update.Strategy != config.StrategyPublish || !cfg.Stores.Official.Enabled {
 		return false
 	}
-	if input.EventName != "schedule" && input.EventName != "workflow_dispatch" {
+	if input.EventName != "" && input.EventName != "schedule" && input.EventName != "workflow_dispatch" {
 		return false
 	}
 	return resolved == OperationCheck || resolved == OperationBuild
@@ -406,8 +434,11 @@ func mapWaitingReviewError(err error) *Error {
 func executionMode(operation Operation, cfg config.Config) string {
 	switch operation {
 	case OperationCheck:
+		if cfg.Version == 2 {
+			return "source-pipeline"
+		}
 		return "docker-image"
-	case OperationPublishOfficial, OperationPublishPrivate:
+	case OperationPublishOfficial:
 		return "store-publish"
 	case OperationBuild:
 		if cfg.Build.ShouldRunBuildScript() {
@@ -429,18 +460,14 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	if input.Tag == "" && input.Version != "" {
 		input.Tag = "v" + input.Version
 	}
-	target := publishflow.TargetOfficial
-	if operation == OperationPublishPrivate {
-		target = publishflow.TargetPrivate
-	}
 	published, err := dependencies.Publish(ctx, publishflow.Request{
-		Target: target, Config: cfg, Project: info, LPKPath: input.LPKPath, Version: input.Version,
-		Changelog: input.Changelog, DownloadURL: input.DownloadURL, ExpectedSHA256: input.ExpectedSHA256,
+		Config: cfg, Project: info, LPKPath: input.LPKPath, Version: input.Version,
+		Changelog: input.Changelog, ExpectedSHA256: input.ExpectedSHA256,
 		GuardOfficialReview: input.GuardOfficialReview, DryRun: input.DryRun,
 	})
 	if err != nil {
 		var pendingReview *official.PendingReviewError
-		if operation == OperationPublishOfficial && input.GuardOfficialReview && errors.As(err, &pendingReview) {
+		if input.GuardOfficialReview && errors.As(err, &pendingReview) {
 			logger := dependencies.Logger
 			if logger == nil {
 				logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -461,6 +488,31 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	result.SHA256 = published.Artifact.SHA256
 	result.TargetPlatform = published.Artifact.TargetPlatform
 	result.StoreResults = encodedStores
+	if cfg.Version == 2 && !input.DryRun {
+		if dependencies.ReadState == nil || dependencies.WriteState == nil {
+			return Result{}, actionError(CodeConfigInvalid, "source pipeline state dependencies are unavailable", nil)
+		}
+		stateFile := filepath.Join(info.Root, cfg.State.File)
+		lock, stateErr := dependencies.ReadState(stateFile)
+		if stateErr != nil {
+			return Result{}, actionError(CodeStorePublishFailed, "unable to read packaged source pipeline state", stateErr)
+		}
+		if lock.Fingerprint == "" || lock.Status != "packaged" {
+			return Result{}, actionError(CodeStorePublishFailed, "official publication requires packaged source pipeline state", nil)
+		}
+		lock.Status = "submitted"
+		lock.Application = pipelinestate.Application{PackageID: published.Artifact.PackageID, Version: published.Artifact.Version, LPKSHA256: published.Artifact.SHA256}
+		if stateErr := dependencies.WriteState(stateFile, lock); stateErr != nil {
+			return Result{}, actionError(CodeStorePublishFailed, "unable to mark source pipeline state as submitted", stateErr)
+		}
+		result.StateFile = stateFile
+		result.Fingerprint = lock.Fingerprint
+		encodedSource, encodeErr := json.Marshal(lock.Source)
+		if encodeErr != nil {
+			return Result{}, actionError(CodeStorePublishFailed, "unable to encode submitted source pipeline state", encodeErr)
+		}
+		result.SourceResult = encodedSource
+	}
 	if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
 		return Result{}, actionError(CodeStorePublishFailed, "unable to write store publishing result", err)
 	}
@@ -527,6 +579,9 @@ func runBuild(ctx context.Context, input Input, cfg config.Config, info project.
 }
 
 func runCheck(ctx context.Context, input Input, cfg config.Config, info project.Info, officialReviewVersion string, dependencies Dependencies) (Result, error) {
+	if cfg.Version == 2 {
+		return runSourceCheck(ctx, input, cfg, info, officialReviewVersion, dependencies)
+	}
 	if cfg.Update.VersionSource.Type != config.VersionSourceImage {
 		return Result{}, actionError(CodeConfigInvalid, "check operation requires update.version_source.type=image", nil)
 	}
@@ -604,6 +659,178 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 	return result, nil
 }
 
+func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info project.Info, officialReviewVersion string, dependencies Dependencies) (Result, error) {
+	if officialReviewVersion != "" {
+		logger := dependencies.Logger
+		if logger == nil {
+			logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+		}
+		return pausedOfficialReviewResult(input, OperationCheck, officialReviewVersion, info, cfg, dependencies, logger, "automatic source publication paused while an official review is pending")
+	}
+	if dependencies.DiscoverSource == nil || dependencies.PrepareSource == nil || dependencies.ReadState == nil || dependencies.WriteState == nil || dependencies.Fingerprint == nil {
+		return Result{}, actionError(CodeConfigInvalid, "source pipeline dependencies are unavailable", nil)
+	}
+	candidate, err := dependencies.DiscoverSource(ctx, source.Request{Source: cfg.Source, Target: cfg.Project.Target(), CurrentVersion: info.Version})
+	if err != nil {
+		return Result{}, actionError(CodeVersionNotFound, "unable to discover the configured source", err)
+	}
+	fingerprint, err := dependencies.Fingerprint(ctx, cfg, candidate)
+	if err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "unable to fingerprint source pipeline inputs", err)
+	}
+	stateFile := filepath.Join(info.Root, cfg.State.File)
+	lock, err := dependencies.ReadState(stateFile)
+	if err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "unable to read source pipeline state", err)
+	}
+	terminalStatus := "submitted"
+	if cfg.Update.Strategy == config.StrategyPull {
+		terminalStatus = "packaged"
+	}
+	changed := lock.Fingerprint != fingerprint || lock.Status != terminalStatus
+	version, err := sourceApplicationVersion(candidate.Version, info.Version, lock, fingerprint)
+	if err != nil {
+		return Result{}, actionError(CodeVersionNotFound, "unable to derive the next application version", err)
+	}
+	encodedSource, err := json.Marshal(candidate)
+	if err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "unable to encode source discovery result", err)
+	}
+	input.Version = version
+	input.Tag = "v" + version
+	result := baseResult(input, dependencies.Host, info, cfg)
+	result.Operation = string(OperationCheck)
+	result.Changed = changed
+	result.SourceResult = encodedSource
+	result.Fingerprint = fingerprint
+	result.StateFile = stateFile
+	if !changed || input.DryRun {
+		if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
+			return Result{}, actionError(CodeBuildFailed, "unable to write source discovery result", err)
+		}
+		return result, nil
+	}
+
+	prepared, err := dependencies.PrepareSource(ctx, prepare.Request{
+		ProjectRoot: info.Root, Config: cfg, Candidate: candidate, ApplicationVersion: version, Fingerprint: fingerprint,
+		Target: cfg.Project.Target(), Stdout: os.Stdout, Stderr: os.Stderr,
+	})
+	if err != nil {
+		return Result{}, actionError(CodeBuildFailed, "source preparation failed", err)
+	}
+	imageResults := []map[string]any{}
+	if strings.TrimSpace(prepared.Image) != "" {
+		if len(cfg.Images) != 1 {
+			return Result{}, actionError(CodeConfigInvalid, "prepared image requires exactly one runtime image binding", nil)
+		}
+		if dependencies.InspectPreparedImage == nil || dependencies.DeliverPreparedImage == nil || dependencies.ReadManifestImages == nil || dependencies.ApplyManifestImages == nil {
+			return Result{}, actionError(CodeConfigInvalid, "prepared image delivery dependencies are unavailable", nil)
+		}
+		binding := cfg.Images[0]
+		target := manifestTarget(binding)
+		current, err := dependencies.ReadManifestImages(info.ManifestFile, []manifestedit.Target{target})
+		if err != nil || len(current) != 1 {
+			return Result{}, actionError(CodeConfigInvalid, "unable to read prepared image target", err)
+		}
+		inspected, err := dependencies.InspectPreparedImage(ctx, prepared.Image, cfg.Project.Target())
+		if err != nil {
+			return Result{}, actionError(CodePlatformNotFound, "unable to inspect prepared image for the target platform", err)
+		}
+		sourceReference := prepared.Image
+		if !strings.Contains(sourceReference, "@") {
+			sourceReference += "@" + strings.TrimPrefix(inspected.Digest, "@")
+		}
+		delivered, err := dependencies.DeliverPreparedImage(ctx, delivery.Request{
+			Image: binding, Tag: candidate.Tag, SourceRef: sourceReference, SourceDigest: inspected.Digest,
+			CurrentRef: current[0].RuntimeRef, Target: cfg.Project.Target(),
+		})
+		if err != nil {
+			return Result{}, actionError(CodeImageCopyFailed, "prepared image delivery failed", err)
+		}
+		if strings.TrimSpace(delivered.RuntimeRef) == "" {
+			return Result{}, actionError(CodeImageCopyFailed, "prepared image delivery returned an empty runtime image", nil)
+		}
+		if _, err := dependencies.ApplyManifestImages(info.ManifestFile, []manifestedit.Update{{
+			Target: target, SourceRef: sourceReference, RuntimeRef: delivered.RuntimeRef,
+		}}); err != nil {
+			return Result{}, actionError(CodeConfigInvalid, "unable to update prepared image in the LazyCat Manifest", err)
+		}
+		imageResults = append(imageResults, map[string]any{
+			"sourceRef": sourceReference, "sourceDigest": inspected.Digest,
+			"deliveredRef": delivered.RuntimeRef, "copied": delivered.Copied,
+		})
+	} else if len(cfg.Images) != 0 {
+		return Result{}, actionError(CodeConfigInvalid, "runtime image binding requires build.prepare.output_image", nil)
+	}
+	encodedImages, err := json.Marshal(imageResults)
+	if err != nil {
+		return Result{}, actionError(CodeBuildFailed, "unable to encode prepared image result", err)
+	}
+	result.ImageResults = encodedImages
+	change, err := dependencies.SetVersion(info.PackageFile, version)
+	if err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "unable to update package.yml version", err)
+	}
+	updated, err := dependencies.Inspect(ctx, cfg.Project)
+	if err != nil {
+		rollbackVersion(dependencies, info.PackageFile, change)
+		return Result{}, actionError(CodeConfigInvalid, "unable to inspect source-updated LazyCat project", err)
+	}
+	built, err := dependencies.Build(ctx, actionbuild.Request{
+		Project: updated, Version: version, Tag: input.Tag, SourceDateEpoch: input.SourceDateEpoch,
+		Official: cfg.Stores.Official.Enabled, RunBuildScript: cfg.Build.ShouldRunBuildScript(), Target: cfg.Project.Target(),
+	})
+	if err != nil {
+		rollbackVersion(dependencies, info.PackageFile, change)
+		return Result{}, actionError(CodeBuildFailed, "LPK validation build failed after source update", err)
+	}
+	lock = pipelinestate.Lock{
+		Source: candidate, Fingerprint: fingerprint, Status: "packaged",
+		Application: pipelinestate.Application{PackageID: built.PackageID, Version: built.Version, LPKSHA256: built.SHA256},
+	}
+	if err := dependencies.WriteState(stateFile, lock); err != nil {
+		return Result{}, actionError(CodeBuildFailed, "unable to write packaged source pipeline state", err)
+	}
+	result.PackageID = built.PackageID
+	result.LPKPath = built.Path
+	result.SHA256 = built.SHA256
+	result.TargetPlatform = built.TargetPlatform
+	result.Warnings = built.Warnings
+	if err := writeResult(&result, resultDirectory(dependencies.ResultDir, updated.Root)); err != nil {
+		return Result{}, actionError(CodeBuildFailed, "unable to write source pipeline result", err)
+	}
+	return result, nil
+}
+
+func sourceApplicationVersion(candidateVersion, currentVersion string, lock pipelinestate.Lock, fingerprint string) (string, error) {
+	if lock.Fingerprint == fingerprint && (lock.Status == "packaged" || lock.Status == "submitted") && strings.TrimSpace(lock.Application.Version) != "" {
+		return lock.Application.Version, nil
+	}
+	candidateVersion = strings.TrimSpace(candidateVersion)
+	if candidateVersion == "" {
+		return versioning.BumpPatch(currentVersion)
+	}
+	candidate, candidateErr := semver.StrictNewVersion(candidateVersion)
+	current, currentErr := semver.StrictNewVersion(strings.TrimSpace(currentVersion))
+	if candidateErr != nil || currentErr != nil {
+		return "", errors.Join(candidateErr, currentErr)
+	}
+	if candidate.GreaterThan(current) {
+		return candidate.String(), nil
+	}
+	return versioning.BumpPatch(currentVersion)
+}
+
+func manifestTarget(image config.Image) manifestedit.Target {
+	target := manifestedit.Target{ID: image.ID, Service: image.Service}
+	if image.Target == "application" {
+		target.Kind = manifestedit.TargetApplication
+	} else {
+		target.Kind = manifestedit.TargetService
+	}
+	return target
+}
+
 func baseResult(input Input, host platform.Host, info project.Info, cfg config.Config) Result {
 	return Result{
 		PackageID:            info.PackageID,
@@ -611,12 +838,11 @@ func baseResult(input Input, host platform.Host, info project.Info, cfg config.C
 		ManifestFile:         info.ManifestFile,
 		Version:              input.Version,
 		Tag:                  input.Tag,
-		DownloadURL:          input.DownloadURL,
 		ImageResults:         json.RawMessage("[]"),
+		SourceResult:         json.RawMessage("{}"),
 		StoreResults:         json.RawMessage("{}"),
 		UpdateStrategy:       string(cfg.Update.Strategy),
 		OfficialStoreEnabled: cfg.Stores.Official.Enabled,
-		PrivateStoreEnabled:  cfg.Stores.Private.Enabled,
 		Channel:              input.Channel,
 		RunnerArch:           host.Arch,
 		TargetPlatform:       cfg.Project.Target().Platform(),
@@ -642,8 +868,6 @@ func mapImageError(err error, target platform.Target) *Error {
 
 func mapPublishError(err error) *Error {
 	switch {
-	case errors.Is(err, publishflow.ErrReleaseAssetMissing):
-		return actionError(CodeReleaseAssetMissing, "private publishing requires a confirmed GitHub Release Asset URL and SHA256", err)
 	case errors.Is(err, publishflow.ErrPublishStrategyRequired), errors.Is(err, publishflow.ErrStoreDisabled), errors.Is(err, lpkgo.ErrInvalidArgument), errors.Is(err, lpkgo.ErrInvalidConfig):
 		return actionError(CodeConfigInvalid, "store publishing configuration is invalid", err)
 	case errors.Is(err, lpkgo.ErrUnauthenticated), errors.Is(err, lpkgo.ErrPermissionDenied):

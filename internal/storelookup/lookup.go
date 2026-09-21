@@ -10,21 +10,18 @@ import (
 	"github.com/cloudflare/backoff"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	officialstore "github.com/lib-x/lzc-toolkit-go/appstore/official"
-	privatestore "github.com/lib-x/lzc-toolkit-go/appstore/private"
 )
 
 type Store string
 
 const (
 	StoreOfficial Store = "official"
-	StorePrivate  Store = "private"
 )
 
 type Request struct {
 	Store      Store
 	PackageID  string
 	BaseURL    string
-	GroupCodes []string
 	HTTPClient *http.Client
 	Retry      RetryPolicy
 }
@@ -60,35 +57,18 @@ func Default(ctx context.Context, request Request) (Result, error) {
 }
 
 func lookupOnce(ctx context.Context, request Request) (Result, error) {
-	var version string
-	switch request.Store {
-	case StoreOfficial:
-		client := officialstore.New(officialstore.Options{
-			MetadataBaseURL: strings.TrimSpace(request.BaseURL),
-			HTTPClient:      request.HTTPClient,
-		})
-		application, err := client.Application(ctx, request.PackageID)
-		if err != nil {
-			return Result{}, err
-		}
-		version = application.Version.Name
-	case StorePrivate:
-		client, err := privatestore.New(privatestore.Options{
-			BaseURL:    strings.TrimSpace(request.BaseURL),
-			HTTPClient: request.HTTPClient,
-			GroupCodes: append([]string(nil), request.GroupCodes...),
-		})
-		if err != nil {
-			return Result{}, err
-		}
-		latest, err := client.LatestVersion(ctx, privatestore.LatestVersionRequest{PackageID: request.PackageID})
-		if err != nil {
-			return Result{}, err
-		}
-		version = latest.LatestVersion.Version
-	default:
+	if request.Store != StoreOfficial {
 		return Result{}, &lpkgo.Error{Code: lpkgo.CodeInvalidArgument, Op: "storelookup", Cause: errors.New("unsupported store")}
 	}
+	client := officialstore.New(officialstore.Options{
+		MetadataBaseURL: strings.TrimSpace(request.BaseURL),
+		HTTPClient:      request.HTTPClient,
+	})
+	application, err := client.Application(ctx, request.PackageID)
+	if err != nil {
+		return Result{}, err
+	}
+	version := application.Version.Name
 	version = strings.TrimSpace(version)
 	if version == "" {
 		return Result{}, &lpkgo.Error{Code: lpkgo.CodeRemoteUnavailable, Op: "storelookup", Cause: errors.New("store returned an empty latest version")}

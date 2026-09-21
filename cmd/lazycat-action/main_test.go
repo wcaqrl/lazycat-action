@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/wcaqrl/lazycat-action/internal/action"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -31,5 +33,21 @@ func TestRunRejectsInvalidMirrorEnvironmentBeforeLoadingConfig(t *testing.T) {
 	code := run(nil, func(name string) string { return environment[name] }, &stdout, &stderr)
 	if code != 1 || !strings.Contains(stderr.String(), "CONFIG_INVALID") || !strings.Contains(stderr.String(), "LAZYCAT_DOCKER_MIRROR") {
 		t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
+	}
+}
+
+func TestFollowupPublishInputRequiresNewOfficialPublishArtifact(t *testing.T) {
+	input := action.Input{ConfigPath: "lazycat-action.yml", Changelog: "Changes"}
+	result := action.Result{
+		Operation: string(action.OperationCheck), Changed: true, UpdateStrategy: "publish", OfficialStoreEnabled: true,
+		Version: "1.2.3", Tag: "v1.2.3", LPKPath: "dist/app.lpk", SHA256: strings.Repeat("a", 64),
+	}
+	publish, ok := followupPublishInput(true, input, result)
+	if !ok || publish.Operation != action.OperationPublishOfficial || publish.LPKPath != result.LPKPath || !publish.GuardOfficialReview || publish.Changelog != "Changes" {
+		t.Fatalf("publish=%#v ok=%v", publish, ok)
+	}
+	result.OfficialReviewPending = true
+	if _, ok := followupPublishInput(true, input, result); ok {
+		t.Fatal("pending official review must prevent follow-up publication")
 	}
 }

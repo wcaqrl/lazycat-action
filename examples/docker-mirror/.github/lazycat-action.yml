@@ -25,5 +25,3 @@ images:
 stores:
   official:
     enabled: false
-  private:
-    enabled: true

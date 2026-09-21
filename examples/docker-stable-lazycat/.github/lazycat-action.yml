@@ -27,5 +27,3 @@ stores:
     enabled: true
     continue_if_newer_version: true
     changelog_locales: [zh, en]
-  private:
-    enabled: false

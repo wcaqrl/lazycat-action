@@ -27,7 +27,7 @@ if [[ -n "${LAZYCAT_ACTION_BINARY:-}" ]]; then
     echo "LAZYCAT_ACTION_BINARY must name an executable regular file" >&2
     exit 1
   fi
-  exec "${LAZYCAT_ACTION_BINARY}"
+  exec "${LAZYCAT_ACTION_BINARY}" "$@"
 fi
 
 version="${LAZYCAT_ACTION_VERSION:-}"
@@ -77,7 +77,7 @@ fi
 tar -xzf "${tmp}/${archive}" -C "${tmp}" lazycat-action
 chmod 0755 "${tmp}/lazycat-action"
 set +e
-"${tmp}/lazycat-action"
+"${tmp}/lazycat-action" "$@"
 status=$?
 set -e
 exit "${status}"

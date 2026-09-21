@@ -1,4 +1,4 @@
-version: 1
+version: 2
 
 project:
   root: .
@@ -7,29 +7,31 @@ project:
   output: dist/application.lpk
   target_arch: amd64
 
-update:
-  strategy: pull
-  allow_downgrade: false
-  version_source:
-    type: image
-    image: web
+source:
+  kind: git
+  url: git@gitee.com:example/application.git
+  auth_ref: source
+  select:
+    strategy: branch-head
+    branch: auto
 
-images:
-  - id: web
-    target: service
-    service: web
-    source: ghcr.io/acme/example-web
-    channel: stable
-    delivery:
-      mode: lazycat
+state:
+  file: .lazycat-action.lock.yml
+
+update:
+  strategy: publish
+  allow_downgrade: false
+
+build:
+  run_buildscript: true
+  prepare:
+    mode: command
+    context: scripts
+    command: ./scripts/build-source.sh
 
 stores:
   official:
-    enabled: false
-    continue_if_newer_version: true
-    skip_if_version_exists: false
-    retry:
-      enabled: false
-  private:
-    enabled: false
-    skip_if_version_exists: false
+    enabled: true
+    create_if_missing: false
+    skip_if_version_exists: true
+    changelog_locales: [zh, en]
