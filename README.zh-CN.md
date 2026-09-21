@@ -8,6 +8,12 @@
 
 发布目标只有懒猫官方应用商店。本项目不包含私有商店客户端、配置或凭据。
 
+## 三个仓库一起使用
+
+[Poster](https://github.com/wcaqrl/poster) 是一个具体的上游示例：它在 `vX.Y.Z` 标签发布时构建公开的 GHCR 镜像。对应的 [poster-adapter](https://github.com/wcaqrl/poster-adapter) 单独保存懒猫的 `package.yml`、`lzc-build.yml`、`lzc-manifest.yml`、图标与截图，以及 `version: 2` 的 `lazycat-action.yml`。本仓库只提供通用工具和可复用工作流，不收录具体应用。
+
+适配仓库的定时工作流调用 `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`；`source.kind: oci` 加 `select.strategy: semver-tag` 从 GHCR 找到目标架构最高稳定版本及不可变镜像摘要。首次接入需要在适配仓库的 Actions Secrets 配置 `LZC_API_TOKEN`（开发者 PAT），并给予 `GITHUB_TOKEN` 写入仓库的权限。先手动执行 `dry-run` 检查选中的摘要，再执行正式任务。正式运行会转存到懒猫官方仓库、构建并检查 LPK、将版本与锁文件提交回适配仓库，最后提交官方应用商店审核。完成新版发布前，先检查工具仓库的 `v1.3.0` Release 与浮动 `v1` 标签均已生效。
+
 ## 更新判断
 
 每个应用选择一个权威来源：

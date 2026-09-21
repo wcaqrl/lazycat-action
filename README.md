@@ -8,6 +8,8 @@ Source repositories remain unaware of LazyCat packaging. Keep `package.yml`, `lz
 
 Only the LazyCat official application store is supported.
 
+For a concrete three-repository setup, see [poster-adapter](https://github.com/wcaqrl/poster-adapter): Poster publishes tagged GHCR images, its adapter owns the LazyCat metadata and daily schedule, and this repository supplies the reusable workflow. Add the developer PAT as `LZC_API_TOKEN` in the adapter's Actions secrets and grant its workflow write access so it can record submitted versions. Test a manual dry run before publishing; the adapter's README describes the full setup.
+
 ## Source identities
 
 - OCI sources compare the selected platform image digest.
