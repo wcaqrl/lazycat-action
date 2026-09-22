@@ -22,18 +22,27 @@ const (
 )
 
 type Config struct {
-	Version int     `yaml:"version"`
-	Project Project `yaml:"project"`
-	Source  Source  `yaml:"source"`
-	State   State   `yaml:"state"`
-	Update  Update  `yaml:"update"`
-	Build   Build   `yaml:"build"`
-	Images  []Image `yaml:"images"`
-	Stores  Stores  `yaml:"stores"`
+	Version   int       `yaml:"version"`
+	Project   Project   `yaml:"project"`
+	Source    Source    `yaml:"source"`
+	Changelog Changelog `yaml:"changelog"`
+	State     State     `yaml:"state"`
+	Update    Update    `yaml:"update"`
+	Build     Build     `yaml:"build"`
+	Images    []Image   `yaml:"images"`
+	Stores    Stores    `yaml:"stores"`
 }
 
 type State struct {
 	File string `yaml:"file"`
+}
+
+// Changelog selects the Git history corresponding to a source release.
+// For OCI sources, GitURL must point to the repository that publishes its tags.
+type Changelog struct {
+	GitURL     string `yaml:"git_url"`
+	AuthRef    string `yaml:"auth_ref"`
+	MaxCommits int    `yaml:"max_commits"`
 }
 
 type SourceKind string

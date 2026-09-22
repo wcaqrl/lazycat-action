@@ -51,3 +51,13 @@ func TestFollowupPublishInputRequiresNewOfficialPublishArtifact(t *testing.T) {
 		t.Fatal("pending official review must prevent follow-up publication")
 	}
 }
+
+func TestFollowupPublishInputUsesDiscoveredChangelog(t *testing.T) {
+	input := action.Input{}
+	result := action.Result{Operation: "check", Changed: true, UpdateStrategy: "publish", OfficialStoreEnabled: true,
+		Version: "1.2.3", LPKPath: "dist/app.lpk", Changelog: "Upstream 1.2.3\n- Fix login"}
+	publish, ok := followupPublishInput(true, input, result)
+	if !ok || publish.Changelog != result.Changelog {
+		t.Fatalf("publish=%#v ok=%v", publish, ok)
+	}
+}

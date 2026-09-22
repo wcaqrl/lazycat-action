@@ -99,13 +99,14 @@ func TestRunVersion2BranchSourcePackagesAndPersistsResumableState(t *testing.T) 
 	packageFile := filepath.Join(root, "package.yml")
 	manifestFile := filepath.Join(root, "lzc-manifest.yml")
 	cfg := config.Config{
-		Version: 2,
-		Project: config.Project{Root: root, Output: "dist/app.lpk", TargetArch: "amd64"},
-		Source:  config.Source{Kind: config.SourceKindGit, URL: "git@gitee.com:acme/app.git", Select: config.SourceSelect{Strategy: "branch-head", Branch: "auto"}},
-		State:   config.State{File: ".lazycat-action.lock.yml"},
-		Update:  config.Update{Strategy: config.StrategyPublish},
-		Build:   config.Build{Prepare: config.Prepare{Mode: "command", Command: "./scripts/build.sh"}},
-		Stores:  config.Stores{Official: config.OfficialStore{Enabled: true}},
+		Version:   2,
+		Project:   config.Project{Root: root, Output: "dist/app.lpk", TargetArch: "amd64"},
+		Source:    config.Source{Kind: config.SourceKindGit, URL: "git@gitee.com:acme/app.git", Select: config.SourceSelect{Strategy: "branch-head", Branch: "auto"}},
+		Changelog: config.Changelog{GitURL: "git@gitee.com:acme/app.git", AuthRef: "source"},
+		State:     config.State{File: ".lazycat-action.lock.yml"},
+		Update:    config.Update{Strategy: config.StrategyPublish},
+		Build:     config.Build{Prepare: config.Prepare{Mode: "command", Command: "./scripts/build.sh"}},
+		Stores:    config.Stores{Official: config.OfficialStore{Enabled: true}},
 	}
 	written := pipelinestate.Lock{}
 	inspectCalls := 0
@@ -132,6 +133,12 @@ func TestRunVersion2BranchSourcePackagesAndPersistsResumableState(t *testing.T) 
 		DiscoverSource: func(context.Context, source.Request) (source.Candidate, error) {
 			return source.Candidate{Kind: "git", Ref: "refs/heads/master", Branch: "master", Revision: strings.Repeat("b", 40)}, nil
 		},
+		DiscoverChangelog: func(_ context.Context, settings config.Changelog, _, _ source.Candidate, previousVersion, nextVersion string) (string, error) {
+			if settings.AuthRef != "source" || previousVersion != "1.0.0" || nextVersion != "1.0.1" {
+				t.Fatalf("settings=%#v previous=%q next=%q", settings, previousVersion, nextVersion)
+			}
+			return "Upstream 1.0.1\n- Fix login", nil
+		},
 		Fingerprint: func(context.Context, config.Config, source.Candidate) (string, error) {
 			return "sha256:fingerprint", nil
 		},
@@ -148,10 +155,10 @@ func TestRunVersion2BranchSourcePackagesAndPersistsResumableState(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Changed || result.Version != "1.0.1" || result.Fingerprint != "sha256:fingerprint" || result.LPKPath == "" {
+	if !result.Changed || result.Version != "1.0.1" || result.Fingerprint != "sha256:fingerprint" || result.LPKPath == "" || !strings.Contains(result.Changelog, "Fix login") {
 		t.Fatalf("result=%#v", result)
 	}
-	if written.Status != "packaged" || written.Application.Version != "1.0.1" || written.Source.Branch != "master" {
+	if written.Status != "packaged" || written.Application.Version != "1.0.1" || written.Source.Branch != "master" || written.Application.Changelog != result.Changelog {
 		t.Fatalf("state=%#v", written)
 	}
 }
@@ -314,6 +321,35 @@ func TestRunPublishesOfficialStoreAndReturnsStableJSON(t *testing.T) {
 	}
 	if result.Operation != "publish-official" || result.SHA256 != strings.Repeat("a", 64) || !result.OfficialStoreEnabled || string(result.StoreResults) == "{}" || !strings.Contains(string(result.StoreResults), `"skipped":true`) || !strings.Contains(string(result.StoreResults), `"onlineVersion":"1.2.3"`) {
 		t.Fatalf("result=%#v", result)
+	}
+}
+
+func TestRunPublishUsesSavedChangelogWhenRetryHasNoInput(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{Version: 2, Project: config.Project{Root: root}, State: config.State{File: ".lazycat-action.lock.yml"}, Update: config.Update{Strategy: config.StrategyPublish}, Stores: config.Stores{Official: config.OfficialStore{Enabled: true}}}
+	lock := pipelinestate.Lock{Fingerprint: "sha256:example", Status: "packaged", Application: pipelinestate.Application{Version: "1.2.3", Changelog: "Upstream 1.2.3\n- Fix login"}}
+	deps := action.Dependencies{
+		Host: platform.Host{OS: "linux", Arch: "amd64"}, ResultDir: filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{Root: root, PackageID: "cloud.lazycat.example", Version: "1.2.3"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+		ReadState:  func(string) (pipelinestate.Lock, error) { return lock, nil },
+		WriteState: func(_ string, saved pipelinestate.Lock) error { lock = saved; return nil },
+		Publish: func(_ context.Context, request publishflow.Request) (publishflow.Result, error) {
+			if request.Changelog != "Upstream 1.2.3\n- Fix login" {
+				t.Fatalf("changelog=%q", request.Changelog)
+			}
+			return publishflow.Result{Artifact: lpkcheckResult(filepath.Join(root, "dist", "app.lpk"))}, nil
+		},
+	}
+	result, err := action.Run(t.Context(), action.Input{Operation: action.OperationPublishOfficial, Version: "1.2.3", LPKPath: filepath.Join(root, "dist", "app.lpk")}, deps)
+	if err != nil || result.Changelog != lock.Application.Changelog || lock.Status != "submitted" {
+		t.Fatalf("result=%#v lock=%#v err=%v", result, lock, err)
 	}
 }
 

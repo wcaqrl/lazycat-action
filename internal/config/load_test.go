@@ -873,6 +873,10 @@ source:
   select:
     strategy: branch-head
     branch: auto
+changelog:
+  git_url: git@gitee.com:example/private-app.git
+  auth_ref: source
+  max_commits: 12
 update:
   strategy: publish
 build:
@@ -896,6 +900,9 @@ stores:
 	}
 	if got.State.File != ".lazycat-action.lock.yml" || got.Build.Prepare.Mode != "command" {
 		t.Fatalf("state/build=%#v %#v", got.State, got.Build.Prepare)
+	}
+	if got.Changelog.AuthRef != "source" || got.Changelog.MaxCommits != 12 {
+		t.Fatalf("changelog=%#v", got.Changelog)
 	}
 }
 

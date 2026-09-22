@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -103,6 +104,8 @@ func applyDefaults(value *Config) {
 	value.Source.URL = strings.TrimSpace(value.Source.URL)
 	value.Source.Image = strings.TrimSpace(value.Source.Image)
 	value.Source.AuthRef = strings.TrimSpace(value.Source.AuthRef)
+	value.Changelog.GitURL = strings.TrimSpace(value.Changelog.GitURL)
+	value.Changelog.AuthRef = strings.TrimSpace(value.Changelog.AuthRef)
 	value.Source.Select.Strategy = strings.ToLower(strings.TrimSpace(value.Source.Select.Strategy))
 	value.Source.Select.Branch = strings.TrimSpace(value.Source.Select.Branch)
 	value.Source.Select.TagRegex = strings.TrimSpace(value.Source.Select.TagRegex)
@@ -201,13 +204,25 @@ func validate(value Config) error {
 		if err := validateSource(value); err != nil {
 			return err
 		}
+		if value.Changelog.GitURL != "" {
+			if strings.Contains(value.Changelog.GitURL, "://") {
+				if parsed, err := url.Parse(value.Changelog.GitURL); err != nil || parsed.User != nil {
+					return errors.New("changelog.git_url must be a valid URL without credentials")
+				}
+			}
+			if value.Changelog.MaxCommits < 0 || value.Changelog.MaxCommits > 50 {
+				return errors.New("changelog.max_commits must be between 1 and 50 when set")
+			}
+		} else if value.Changelog.AuthRef != "" || value.Changelog.MaxCommits != 0 {
+			return errors.New("changelog.auth_ref and max_commits require changelog.git_url")
+		}
 		if err := validateProjectPath("state.file", value.State.File); err != nil {
 			return err
 		}
 		if err := validatePrepare(value); err != nil {
 			return err
 		}
-	} else if value.Source.Kind != "" || value.Source.URL != "" || value.Source.Image != "" || value.Source.AuthRef != "" {
+	} else if value.Source.Kind != "" || value.Source.URL != "" || value.Source.Image != "" || value.Source.AuthRef != "" || value.Changelog != (Changelog{}) {
 		return errors.New("source configuration requires version: 2")
 	}
 	if !value.Stores.Official.CreateIfMissing && hasOfficialApplication(value.Stores.Official.Application) {

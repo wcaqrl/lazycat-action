@@ -12,7 +12,7 @@
 
 [Poster](https://github.com/wcaqrl/poster) 是一个具体的上游示例：它在 `vX.Y.Z` 标签发布时构建公开的 GHCR 镜像。对应的 [poster-adapter](https://github.com/wcaqrl/poster-adapter) 单独保存懒猫的 `package.yml`、`lzc-build.yml`、`lzc-manifest.yml`、图标与截图，以及 `version: 2` 的 `lazycat-action.yml`。本仓库只提供通用工具和可复用工作流，不收录具体应用。
 
-适配仓库的定时工作流调用 `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`；`source.kind: oci` 加 `select.strategy: semver-tag` 从 GHCR 找到目标架构最高稳定版本及不可变镜像摘要。首次接入需要在适配仓库的 Actions Secrets 配置 `LZC_API_TOKEN`（开发者 PAT），并给予 `GITHUB_TOKEN` 写入仓库的权限。先手动执行 `dry-run` 检查选中的摘要，再执行正式任务。正式运行会转存到懒猫官方仓库、构建并检查 LPK、将版本与锁文件提交回适配仓库，最后提交官方应用商店审核。完成新版发布前，先检查工具仓库的 `v1.3.0` Release 与浮动 `v1` 标签均已生效。
+适配仓库的定时工作流调用 `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`；`source.kind: oci` 加 `select.strategy: semver-tag` 从 GHCR 找到目标架构最高稳定版本及不可变镜像摘要。首次接入需要在适配仓库的 Actions Secrets 配置 `LZC_API_TOKEN`（开发者 PAT），并给予 `GITHUB_TOKEN` 写入仓库的权限。先手动执行 `dry-run` 检查选中的摘要和更新日志，再执行正式任务。正式运行会转存到懒猫官方仓库、构建并检查 LPK、将版本与锁文件提交回适配仓库，最后提交官方应用商店审核。
 
 ## 更新判断
 
@@ -30,6 +30,20 @@
 
 - `packaged`：镜像和 LPK 已生成，可以重试官方提交。
 - `submitted`：该指纹已经成功提交或确认线上已有相同版本，再次检查为 no-op。
+
+### 自动抓取本次更新日志
+
+当版本来源是 OCI 镜像时，在**适配仓库**的 `lazycat-action.yml` 中指定构建该镜像的 Git 仓库：
+
+```yaml
+changelog:
+  git_url: https://github.com/example/application.git
+  max_commits: 20
+```
+
+发现新镜像后，从 Git 读取“当前应用版本的标签 → 新镜像标签”之间的提交标题作为更新日志，`v1.2.3` 和 `1.2.3` 标签均可匹配。Git 源也可以配置相同地址；私有仓库可写 `auth_ref: source`，沿用 `SOURCE_SSH_KEY` 和 `SOURCE_KNOWN_HOSTS` 或 `SOURCE_TOKEN`，无需在 YAML 放密钥。当前应用版本没有上游标签时只列出目标版本最新一条提交；目标版本标签不存在则在转存、送审前报错，避免提交错误说明。
+
+只读 `dry-run` 的结果会显示 `changelog`，正式运行会把它写入锁文件供失败后重试，并发送到配置的 `changelog_locales`。目前各语言使用相同的上游原文，不做自动翻译。工作流的 `changelog` 输入或 CLI 的 `--changelog` 可人工覆盖；没有配置 `changelog.git_url` 的适配项目仍使用旧的通用版本说明。
 
 ## Version 2 配置
 

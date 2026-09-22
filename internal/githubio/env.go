@@ -149,6 +149,7 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		{key: "sha256", value: result.SHA256},
 		{key: "image-results", value: imageResults},
 		{key: "source-result", value: sourceResult},
+		{key: "changelog", value: result.Changelog},
 		{key: "fingerprint", value: result.Fingerprint},
 		{key: "state-file", value: result.StateFile},
 		{key: "store-results", value: storeResults},

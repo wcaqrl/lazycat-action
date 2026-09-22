@@ -51,6 +51,25 @@ Preparation modes are `passthrough`, `dockerfile`, and `command`. A Dockerfile b
 
 Private source credentials are referenced by `auth_ref` and supplied through environment variables such as `LAZYCAT_AUTH_SOURCE_SSH_KEY`; they never belong in YAML.
 
+## Upstream changelog for official review
+
+An adapter can connect an OCI image to the Git repository that produced its releases:
+
+```yaml
+source:
+  kind: oci
+  image: ghcr.io/example/application
+  select:
+    strategy: semver-tag
+changelog:
+  git_url: https://github.com/example/application.git
+  max_commits: 20
+```
+
+On an update, the pipeline compares the Git tag for the adapter's current application version with the selected image release tag and uses their commit subjects as review notes. Both `1.2.3` and `v1.2.3` Git tags are recognized; the tags must refer to the release corresponding to the image. A Git branch or tag source can use the same configuration with `git_url` set to its source URL. For a private repository, set `changelog.auth_ref: source` and provide the existing `SOURCE_SSH_KEY`/`SOURCE_KNOWN_HOSTS` or `SOURCE_TOKEN` secrets. If the current version has no matching Git tag, only the target release commit is described. If the target tag is missing, the check fails before copying images or submitting a misleading changelog.
+
+The generated notes appear in dry-run results, GitHub Action outputs, and the saved pipeline lock so retries use the same text. The workflow passes them to the official store for every configured `changelog_locales`; it does not translate them. An explicit workflow `changelog` input or CLI `--changelog` overrides automatic generation. Without `changelog.git_url`, the previous generic release text remains the fallback.
+
 ## CLI
 
 ```bash

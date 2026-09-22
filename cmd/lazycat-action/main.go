@@ -142,6 +142,9 @@ func followupPublishInput(enabled bool, input action.Input, result action.Result
 	}
 	changelog := input.Changelog
 	if changelog == "" {
+		changelog = result.Changelog
+	}
+	if changelog == "" {
 		changelog = "Release " + result.Version
 	}
 	return action.Input{

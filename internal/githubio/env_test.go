@@ -258,6 +258,17 @@ func TestWriteOutputsChangesDelimiterWhenValueStartsWithDelimiterLine(t *testing
 	}
 }
 
+func TestWriteOutputsPreservesMultilineChangelog(t *testing.T) {
+	var output bytes.Buffer
+	result := action.Result{Changelog: "Upstream 1.2.3\n- Fix login\n- Add search"}
+	if err := githubio.WriteOutputs(&output, result); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output.String(), "changelog<<") || !strings.Contains(output.String(), "Upstream 1.2.3\n- Fix login\n- Add search\n") {
+		t.Fatalf("changelog output lost lines: %s", output.String())
+	}
+}
+
 func TestReadInputRejectsInvalidBooleanAndVersion(t *testing.T) {
 	tests := []map[string]string{
 		{"INPUT_DRY_RUN": "sometimes", "INPUT_VERSION": "1.2.3"},

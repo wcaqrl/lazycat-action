@@ -96,6 +96,7 @@ type Result struct {
 	SHA256                string          `json:"sha256"`
 	ImageResults          json.RawMessage `json:"imageResults"`
 	SourceResult          json.RawMessage `json:"sourceResult"`
+	Changelog             string          `json:"changelog,omitempty"`
 	Fingerprint           string          `json:"fingerprint,omitempty"`
 	StateFile             string          `json:"stateFile,omitempty"`
 	StoreResults          json.RawMessage `json:"storeResults"`
@@ -176,6 +177,7 @@ type Dependencies struct {
 	Build                func(context.Context, actionbuild.Request) (actionbuild.Result, error)
 	CheckImages          func(context.Context, imageflow.Request) (imageflow.Result, error)
 	DiscoverSource       func(context.Context, source.Request) (source.Candidate, error)
+	DiscoverChangelog    func(context.Context, config.Changelog, source.Candidate, source.Candidate, string, string) (string, error)
 	PrepareSource        func(context.Context, prepare.Request) (prepare.Result, error)
 	InspectPreparedImage func(context.Context, string, platform.Target) (registry.Image, error)
 	DeliverPreparedImage func(context.Context, delivery.Request) (delivery.Result, error)
@@ -217,14 +219,15 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	publishFlow := publishflow.Default()
 	publishFlow.Logger = logger
 	return Dependencies{
-		Host:           host,
-		Logger:         logger,
-		LoadConfig:     config.Load,
-		Inspect:        project.Inspect,
-		SetVersion:     yamledit.SetPackageVersion,
-		Build:          builder.Build,
-		CheckImages:    imageFlow.Check,
-		DiscoverSource: sourceDiscoverer.Discover,
+		Host:              host,
+		Logger:            logger,
+		LoadConfig:        config.Load,
+		Inspect:           project.Inspect,
+		SetVersion:        yamledit.SetPackageVersion,
+		Build:             builder.Build,
+		CheckImages:       imageFlow.Check,
+		DiscoverSource:    sourceDiscoverer.Discover,
+		DiscoverChangelog: sourceDiscoverer.Git.Changelog,
 		PrepareSource: prepare.Runner{
 			Git: sourceDiscoverer.Git,
 		}.Prepare,
@@ -460,6 +463,15 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	if input.Tag == "" && input.Version != "" {
 		input.Tag = "v" + input.Version
 	}
+	if input.Changelog == "" && cfg.Version == 2 && dependencies.ReadState != nil {
+		lock, stateErr := dependencies.ReadState(filepath.Join(info.Root, cfg.State.File))
+		if stateErr != nil {
+			return Result{}, actionError(CodeConfigInvalid, "unable to read packaged changelog", stateErr)
+		}
+		if lock.Application.Version == input.Version && lock.Status == "packaged" {
+			input.Changelog = lock.Application.Changelog
+		}
+	}
 	published, err := dependencies.Publish(ctx, publishflow.Request{
 		Config: cfg, Project: info, LPKPath: input.LPKPath, Version: input.Version,
 		Changelog: input.Changelog, ExpectedSHA256: input.ExpectedSHA256,
@@ -481,6 +493,7 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 		return Result{}, actionError(CodeStorePublishFailed, "unable to encode store publishing result", err)
 	}
 	result := baseResult(input, dependencies.Host, info, cfg)
+	result.Changelog = input.Changelog
 	result.Operation = string(operation)
 	result.PackageID = published.Artifact.PackageID
 	result.Version = published.Artifact.Version
@@ -501,7 +514,7 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 			return Result{}, actionError(CodeStorePublishFailed, "official publication requires packaged source pipeline state", nil)
 		}
 		lock.Status = "submitted"
-		lock.Application = pipelinestate.Application{PackageID: published.Artifact.PackageID, Version: published.Artifact.Version, LPKSHA256: published.Artifact.SHA256}
+		lock.Application = pipelinestate.Application{PackageID: published.Artifact.PackageID, Version: published.Artifact.Version, LPKSHA256: published.Artifact.SHA256, Changelog: input.Changelog}
 		if stateErr := dependencies.WriteState(stateFile, lock); stateErr != nil {
 			return Result{}, actionError(CodeStorePublishFailed, "unable to mark source pipeline state as submitted", stateErr)
 		}
@@ -704,6 +717,21 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	result.SourceResult = encodedSource
 	result.Fingerprint = fingerprint
 	result.StateFile = stateFile
+	if changed {
+		if input.Changelog != "" {
+			result.Changelog = input.Changelog
+		} else if lock.Fingerprint == fingerprint && lock.Application.Changelog != "" {
+			result.Changelog = lock.Application.Changelog
+		} else if cfg.Changelog.GitURL != "" {
+			if dependencies.DiscoverChangelog == nil {
+				return Result{}, actionError(CodeConfigInvalid, "changelog discovery is unavailable", nil)
+			}
+			result.Changelog, err = dependencies.DiscoverChangelog(ctx, cfg.Changelog, candidate, lock.Source, info.Version, version)
+			if err != nil {
+				return Result{}, actionError(CodeVersionNotFound, "unable to discover the upstream changelog", err)
+			}
+		}
+	}
 	if !changed || input.DryRun {
 		if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
 			return Result{}, actionError(CodeBuildFailed, "unable to write source discovery result", err)
@@ -786,7 +814,7 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	}
 	lock = pipelinestate.Lock{
 		Source: candidate, Fingerprint: fingerprint, Status: "packaged",
-		Application: pipelinestate.Application{PackageID: built.PackageID, Version: built.Version, LPKSHA256: built.SHA256},
+		Application: pipelinestate.Application{PackageID: built.PackageID, Version: built.Version, LPKSHA256: built.SHA256, Changelog: result.Changelog},
 	}
 	if err := dependencies.WriteState(stateFile, lock); err != nil {
 		return Result{}, actionError(CodeBuildFailed, "unable to write packaged source pipeline state", err)

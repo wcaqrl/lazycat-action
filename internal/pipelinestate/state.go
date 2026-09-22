@@ -31,6 +31,7 @@ type Application struct {
 	PackageID string `yaml:"package"`
 	Version   string `yaml:"version"`
 	LPKSHA256 string `yaml:"lpk_sha256,omitempty"`
+	Changelog string `yaml:"changelog,omitempty"`
 }
 
 func Read(filename string) (Lock, error) {

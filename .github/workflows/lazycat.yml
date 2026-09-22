@@ -123,6 +123,8 @@ on:
         value: ${{ jobs.lazycat.outputs.image-results }}
       source-result:
         value: ${{ jobs.lazycat.outputs.source-result }}
+      changelog:
+        value: ${{ jobs.lazycat.outputs.changelog }}
       fingerprint:
         value: ${{ jobs.lazycat.outputs.fingerprint }}
       state-file:
@@ -176,6 +178,7 @@ jobs:
       sha256: ${{ steps.lazycat.outputs.sha256 }}
       image-results: ${{ steps.lazycat.outputs.image-results }}
       source-result: ${{ steps.lazycat.outputs.source-result }}
+      changelog: ${{ steps.lazycat.outputs.changelog }}
       fingerprint: ${{ steps.lazycat.outputs.fingerprint }}
       state-file: ${{ steps.publish.outputs.state-file || steps.lazycat.outputs.state-file }}
       store-results: ${{ steps.publish.outputs.store-results || steps.lazycat.outputs.store-results }}
@@ -380,7 +383,7 @@ jobs:
           operation: publish-official
           config: ${{ inputs.config }}
           version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ inputs.changelog || format('Release {0}', steps.lazycat.outputs.version) }}
+          changelog: ${{ inputs.changelog || steps.lazycat.outputs.changelog || format('Release {0}', steps.lazycat.outputs.version) }}
           lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
           sha256: ${{ steps.lazycat.outputs.sha256 }}
 
