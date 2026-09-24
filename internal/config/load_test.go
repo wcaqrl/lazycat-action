@@ -820,6 +820,50 @@ images:
 	}
 }
 
+func TestLoadAllowsVersion2CoordinatedImageSet(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "lazycat.yml")
+	data := []byte(`version: 2
+project: {}
+source:
+  kind: git
+  url: https://github.com/immich-app/immich.git
+  select:
+    strategy: semver-tag
+build:
+  prepare:
+    mode: images
+images:
+  - id: server
+    target: service
+    service: immich
+    source: ghcr.io/immich-app/immich-server:{tag}
+  - id: machine-learning
+    target: service
+    service: machine-learning
+    source: ghcr.io/immich-app/immich-machine-learning:{tag}
+    delivery:
+      copy_source: ghcr.nju.edu.cn/immich-app/immich-machine-learning:{tag}
+  - id: redis
+    target: service
+    service: redis
+    source: docker.io/valkey/valkey:9
+  - id: postgres
+    target: service
+    service: postgres
+    source: ghcr.io/immich-app/postgres:14-vectorchord0.4.3-pgvectors0.2.0
+`)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := config.Load(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Build.Prepare.Mode != "images" || len(loaded.Images) != 4 {
+		t.Fatalf("config=%#v", loaded)
+	}
+}
+
 func TestLoadRejectsUnusedOfficialApplicationMetadata(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "lazycat.yml")
 	data := []byte(`version: 1

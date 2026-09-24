@@ -172,6 +172,8 @@ func applyDefaults(value *Config) {
 			image.Delivery.Mode = "lazycat"
 		}
 		image.Delivery.ImageTemplate = strings.TrimSpace(image.Delivery.ImageTemplate)
+		image.Delivery.CopySource = strings.TrimSpace(image.Delivery.CopySource)
+		image.Delivery.StagingImage = strings.TrimSpace(image.Delivery.StagingImage)
 	}
 }
 
@@ -325,10 +327,33 @@ func validate(value Config) error {
 		}
 	}
 	if value.Version == 2 {
-		if len(value.Images) > 1 {
-			return errors.New("version 2 source pipelines currently support at most one runtime image binding")
+		if value.Build.Prepare.Mode == "images" {
+			if len(value.Images) == 0 {
+				return errors.New("images build.prepare mode requires at least one runtime image binding")
+			}
+			for _, image := range value.Images {
+				if image.Source == "" {
+					return fmt.Errorf("image %q source template is required for images build.prepare mode", image.ID)
+				}
+				if image.Delivery.StagingImage != "" && image.Delivery.Mode != "lazycat" {
+					return fmt.Errorf("image %q staging_image requires lazycat delivery", image.ID)
+				}
+				if image.Delivery.CopySource != "" && image.Delivery.Mode != "lazycat" {
+					return fmt.Errorf("image %q copy_source requires lazycat delivery", image.ID)
+				}
+				if image.Delivery.CopySource != "" && image.Delivery.StagingImage != "" {
+					return fmt.Errorf("image %q copy_source and staging_image are mutually exclusive", image.ID)
+				}
+			}
+		} else if len(value.Images) > 1 {
+			return errors.New("version 2 prepared-image pipelines support at most one runtime image binding; use build.prepare.mode=images for a coordinated image set")
 		}
 		return nil
+	}
+	for _, image := range value.Images {
+		if image.Delivery.StagingImage != "" || image.Delivery.CopySource != "" {
+			return fmt.Errorf("image %q copy_source and staging_image require version: 2", image.ID)
+		}
 	}
 	switch value.Update.VersionSource.Type {
 	case VersionSourceGit:
@@ -435,6 +460,10 @@ func validatePrepare(value Config) error {
 		}
 		if prepare.Command != "" || prepare.Dockerfile != "" || prepare.Context != "" || prepare.Output != "" || len(prepare.BuildArgs) > 0 {
 			return errors.New("passthrough build.prepare mode must not define command, Dockerfile, context, output_image, or build_args")
+		}
+	case "images":
+		if prepare.Command != "" || prepare.Dockerfile != "" || prepare.Context != "" || prepare.Output != "" || len(prepare.BuildArgs) > 0 {
+			return errors.New("images build.prepare mode must not define command, Dockerfile, context, output_image, or build_args")
 		}
 	case "command":
 		if prepare.Command == "" {

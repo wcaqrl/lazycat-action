@@ -2,6 +2,7 @@ package action_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -233,6 +234,105 @@ func TestRunVersion2PinsPreparedImageBeforeOfficialCopy(t *testing.T) {
 	want := "ttl.sh/acme/app:1.0.1@" + digest
 	if deliveryRequest.SourceRef != want || manifestUpdate.SourceRef != want {
 		t.Fatalf("delivery source=%q manifest source=%q want=%q", deliveryRequest.SourceRef, manifestUpdate.SourceRef, want)
+	}
+}
+
+func TestRunVersion2DeliversCoordinatedImageSet(t *testing.T) {
+	root := t.TempDir()
+	bindings := []config.Image{
+		{ID: "server", Target: "service", Service: "immich", Source: "ghcr.io/immich-app/immich-server:{tag}", Delivery: config.Delivery{Mode: "lazycat", StagingImage: "ttl.sh/immich-{id}-{version}-{revision}:24h"}},
+		{ID: "machine-learning", Target: "service", Service: "machine-learning", Source: "ghcr.io/immich-app/immich-machine-learning:{tag}", Delivery: config.Delivery{Mode: "lazycat", CopySource: "ghcr.nju.edu.cn/immich-app/immich-machine-learning:{tag}"}},
+		{ID: "redis", Target: "service", Service: "redis", Source: "docker.io/valkey/valkey:9@sha256:fixed", Delivery: config.Delivery{Mode: "lazycat"}},
+		{ID: "postgres", Target: "service", Service: "postgres", Source: "ghcr.io/immich-app/postgres:14-vector@sha256:fixed", Delivery: config.Delivery{Mode: "lazycat"}},
+	}
+	cfg := config.Config{
+		Version: 2,
+		Project: config.Project{Root: root, Output: "dist/app.lpk", TargetArch: "amd64"},
+		Source:  config.Source{Kind: config.SourceKindGit, URL: "https://github.com/immich-app/immich.git"},
+		State:   config.State{File: ".lazycat-action.lock.yml"},
+		Update:  config.Update{Strategy: config.StrategyPublish},
+		Build:   config.Build{Prepare: config.Prepare{Mode: "images"}},
+		Images:  bindings,
+	}
+	inspectProjectCalls := 0
+	applyCalls := 0
+	stageCalls := 0
+	var applied []manifestedit.Update
+	var deliveredSources []string
+	var written pipelinestate.Lock
+	deps := action.Dependencies{
+		Host: platform.Host{OS: "linux", Arch: "amd64"}, ResultDir: filepath.Join(root, "results"),
+		LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			inspectProjectCalls++
+			version := "3.0.3"
+			if inspectProjectCalls > 1 {
+				version = "3.2.2"
+			}
+			return project.Info{Root: root, PackageFile: filepath.Join(root, "package.yml"), ManifestFile: filepath.Join(root, "lzc-manifest.yml"), Output: filepath.Join(root, "dist", "app.lpk"), PackageID: "dev.libr.immich", Version: version}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) {
+			return yamledit.Change{Changed: true, Old: "3.0.3", New: "3.2.2"}, nil
+		},
+		Build: func(_ context.Context, request actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{Path: request.Project.Output, PackageID: "dev.libr.immich", Version: "3.2.2", SHA256: strings.Repeat("d", 64), TargetPlatform: "linux/amd64"}, nil
+		},
+		DiscoverSource: func(context.Context, source.Request) (source.Candidate, error) {
+			return source.Candidate{Kind: "git", Version: "3.2.2", Tag: "v3.2.2", Ref: "refs/tags/v3.2.2", Revision: strings.Repeat("c", 40)}, nil
+		},
+		Fingerprint: func(context.Context, config.Config, source.Candidate) (string, error) {
+			return "sha256:fingerprint", nil
+		},
+		ReadState:     func(string) (pipelinestate.Lock, error) { return pipelinestate.Lock{}, nil },
+		WriteState:    func(_ string, lock pipelinestate.Lock) error { written = lock; return nil },
+		PrepareSource: func(context.Context, prepare.Request) (prepare.Result, error) { return prepare.Result{}, nil },
+		ReadManifestImages: func(_ string, targets []manifestedit.Target) ([]manifestedit.Current, error) {
+			values := make([]manifestedit.Current, 0, len(targets))
+			for _, target := range targets {
+				values = append(values, manifestedit.Current{ID: target.ID, RuntimeRef: "registry.lazycat.cloud/old/" + target.ID + ":3.0.3"})
+			}
+			return values, nil
+		},
+		InspectPreparedImage: func(_ context.Context, reference string, _ platform.Target) (registry.Image, error) {
+			return registry.Image{Reference: reference, Digest: "sha256:" + strings.Repeat("a", 64), Platform: "linux/amd64"}, nil
+		},
+		StageImage: func(_ context.Context, source, destination string, _ platform.Target) error {
+			stageCalls++
+			if !strings.Contains(source, "immich-server:v3.2.2@sha256:") || destination != "ttl.sh/immich-server-3.2.2-cccccccccccc:24h" {
+				t.Fatalf("stage source=%q destination=%q", source, destination)
+			}
+			return nil
+		},
+		DeliverPreparedImage: func(_ context.Context, request delivery.Request) (delivery.Result, error) {
+			deliveredSources = append(deliveredSources, request.SourceRef)
+			return delivery.Result{RuntimeRef: "registry.lazycat.cloud/peter/" + request.Image.ID + ":3.2.2", Copied: true}, nil
+		},
+		ApplyManifestImages: func(_ string, updates []manifestedit.Update) ([]manifestedit.Change, error) {
+			applyCalls++
+			applied = append([]manifestedit.Update(nil), updates...)
+			changes := make([]manifestedit.Change, len(updates))
+			return changes, nil
+		},
+	}
+	result, err := action.Run(t.Context(), action.Input{Operation: action.OperationCheck}, deps)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var images []map[string]any
+	if err := json.Unmarshal(result.ImageResults, &images); err != nil {
+		t.Fatal(err)
+	}
+	if applyCalls != 1 || stageCalls != 1 || len(applied) != 4 || len(images) != 4 || len(written.Images) != 4 {
+		t.Fatalf("applyCalls=%d stageCalls=%d applied=%d results=%d state=%d", applyCalls, stageCalls, len(applied), len(images), len(written.Images))
+	}
+	if !strings.Contains(applied[0].SourceRef, "immich-server:v3.2.2@sha256:") || written.Status != "packaged" {
+		t.Fatalf("first=%#v state=%#v", applied[0], written)
+	}
+	if !strings.HasPrefix(deliveredSources[0], "ttl.sh/immich-server-3.2.2-cccccccccccc:24h@sha256:") {
+		t.Fatalf("delivered source=%q", deliveredSources[0])
+	}
+	if !strings.HasPrefix(deliveredSources[1], "ghcr.nju.edu.cn/immich-app/immich-machine-learning:v3.2.2@sha256:") {
+		t.Fatalf("proxy delivered source=%q", deliveredSources[1])
 	}
 }
 

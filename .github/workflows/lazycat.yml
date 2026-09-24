@@ -64,6 +64,11 @@ on:
         type: boolean
         required: false
         default: true
+      enable-image-staging:
+        description: Install the pinned crane binary required by images[].delivery.staging_image.
+        type: boolean
+        required: false
+        default: false
       docker-mirror:
         description: Optional Docker Hub mirror registry/path prefix.
         type: string
@@ -232,6 +237,18 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Set up Go for image staging
+        if: inputs.enable-image-staging && !contains(steps.toolchains.outputs.value, ',go,')
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.25.x"
+          cache: false
+
+      - name: Install crane for image staging
+        if: inputs.enable-image-staging
+        shell: bash
+        run: go install github.com/google/go-containerregistry/cmd/crane@v0.20.6
 
       - name: Set up Node from input
         if: contains(steps.toolchains.outputs.value, ',node,') && inputs.node-version != ''

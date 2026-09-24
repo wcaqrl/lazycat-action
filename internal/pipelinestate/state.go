@@ -24,7 +24,15 @@ type Lock struct {
 	Source      source.Candidate `yaml:"source"`
 	Fingerprint string           `yaml:"fingerprint"`
 	Status      string           `yaml:"status"`
+	Images      []Image          `yaml:"images,omitempty"`
 	Application Application      `yaml:"application"`
+}
+
+type Image struct {
+	ID           string `yaml:"id"`
+	SourceRef    string `yaml:"source_ref"`
+	SourceDigest string `yaml:"source_digest"`
+	RuntimeRef   string `yaml:"runtime_ref"`
 }
 
 type Application struct {
@@ -108,6 +116,16 @@ func Fingerprint(ctx context.Context, cfg config.Config, candidate source.Candid
 	writePart(hash, cfg.Build.Prepare.Command)
 	writePart(hash, cfg.Build.Prepare.Dockerfile)
 	writePart(hash, cfg.Build.Prepare.Output)
+	for _, image := range cfg.Images {
+		writePart(hash, image.ID)
+		writePart(hash, image.Target)
+		writePart(hash, image.Service)
+		writePart(hash, image.Source)
+		writePart(hash, image.Delivery.Mode)
+		writePart(hash, image.Delivery.ImageTemplate)
+		writePart(hash, image.Delivery.CopySource)
+		writePart(hash, image.Delivery.StagingImage)
+	}
 	keys := make([]string, 0, len(cfg.Build.Prepare.BuildArgs))
 	for key := range cfg.Build.Prepare.BuildArgs {
 		keys = append(keys, key)

@@ -49,6 +49,12 @@ stores:
 
 Preparation modes are `passthrough`, `dockerfile`, and `command`. A Dockerfile build receives the pinned `SOURCE_IMAGE`, `SOURCE_REF`, `SOURCE_REVISION`, and `SOURCE_VERSION`. A command build also receives `LAZYCAT_SOURCE_DIR`, `LAZYCAT_OUTPUT_IMAGE`, and the target platform.
 
+Use `build.prepare.mode: images` for a Git release that coordinates multiple runtime images. Each `images[].source` may use `{tag}`, `{source_version}`, `{version}`, or `{revision}`. All images are pinned and delivered before the Manifest is updated as one change; build and state failures restore the previous image set and package version.
+
+Set `images[].delivery.staging_image` when the official copy service cannot reliably read the upstream registry. The Action uses `crane` to mirror the immutable platform image, verifies the staged digest, and copies from that reference. Enable `enable-image-staging` on the reusable workflow.
+
+Use `images[].delivery.copy_source` when an anonymous registry proxy already serves the image. The Action verifies that its target-platform digest exactly matches the original source before copying. `copy_source` and `staging_image` are mutually exclusive.
+
 Private source credentials are referenced by `auth_ref` and supplied through environment variables such as `LAZYCAT_AUTH_SOURCE_SSH_KEY`; they never belong in YAML.
 
 ## Upstream changelog for official review

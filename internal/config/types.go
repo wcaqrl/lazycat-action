@@ -136,6 +136,8 @@ type Image struct {
 type Delivery struct {
 	Mode               string `yaml:"mode"`
 	ImageTemplate      string `yaml:"image_template"`
+	CopySource         string `yaml:"copy_source"`
+	StagingImage       string `yaml:"staging_image"`
 	RequireDigestMatch bool   `yaml:"require_digest_match"`
 }
 

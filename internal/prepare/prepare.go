@@ -77,6 +77,8 @@ func (runner Runner) Prepare(ctx context.Context, request Request) (Result, erro
 		"LAZYCAT_TARGET_PLATFORM=" + request.Target.Platform(),
 	}
 	switch mode {
+	case "images":
+		return Result{}, nil
 	case "passthrough":
 		if request.Candidate.Kind != string(config.SourceKindOCI) {
 			return Result{}, errors.New("passthrough build mode requires an OCI source")

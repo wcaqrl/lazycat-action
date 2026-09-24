@@ -58,3 +58,27 @@ func TestFingerprintChangesWithRecipeContent(t *testing.T) {
 		t.Fatalf("fingerprint did not change: %s", first)
 	}
 }
+
+func TestFingerprintChangesWithCoordinatedImageRecipe(t *testing.T) {
+	cfg := config.Config{
+		Project: config.Project{Root: t.TempDir()},
+		Build:   config.Build{Prepare: config.Prepare{Mode: "images"}},
+		Images: []config.Image{{
+			ID: "server", Target: "service", Service: "immich",
+			Source: "ghcr.io/immich-app/immich-server:{tag}", Delivery: config.Delivery{Mode: "lazycat"},
+		}},
+	}
+	candidate := source.Candidate{Kind: "git", Tag: "v3.2.2", Ref: "refs/tags/v3.2.2", Revision: "abc"}
+	first, err := pipelinestate.Fingerprint(t.Context(), cfg, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Images[0].Source = "ghcr.io/immich-app/immich-server:v3.2.3"
+	second, err := pipelinestate.Fingerprint(t.Context(), cfg, candidate)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatalf("fingerprint did not include coordinated image recipe: %s", first)
+	}
+}

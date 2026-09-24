@@ -130,7 +130,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.3.1
+        LAZYCAT_ACTION_VERSION: v1.4.0
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_IMAGE_ID: ${{ inputs['image-id'] }}

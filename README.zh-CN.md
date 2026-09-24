@@ -158,6 +158,49 @@ SOURCE_VERSION=<normalized version>
 
 Dockerfile 应通过 `ARG SOURCE_IMAGE` 和 `FROM ${SOURCE_IMAGE}` 固定基础镜像。构建结果必须推送到懒猫开发者平台能够读取的 OCI Registry。
 
+### 一个版本协调多个运行镜像
+
+上游 Git 标签同时发布多个容器时，使用 `build.prepare.mode: images`，并在每个 `images[].source` 中引用同一个来源标签：
+
+```yaml
+source:
+  kind: git
+  url: https://github.com/example/application.git
+  select:
+    strategy: semver-tag
+    tag_regex: '^v[0-9]+\.[0-9]+\.[0-9]+$'
+
+build:
+  prepare:
+    mode: images
+
+images:
+  - id: server
+    target: service
+    service: server
+    source: ghcr.io/example/server:{tag}
+    delivery:
+      mode: lazycat
+  - id: worker
+    target: service
+    service: worker
+    source: ghcr.io/example/worker:{tag}
+    delivery:
+      mode: lazycat
+  - id: database
+    target: service
+    service: database
+    source: ghcr.io/example/database:14@sha256:...
+    delivery:
+      mode: lazycat
+```
+
+支持 `{tag}`、`{source_version}`、`{version}` 和 `{revision}` 占位符。流程先固定并交付全部镜像，全部成功后才一次性修改 Manifest；构建或状态写入失败时会恢复原来的镜像和应用版本。锁文件会保存整组源摘要及官方运行地址。
+
+如果官方 copy-image 服务无法稳定读取源 Registry，可在 `delivery` 下配置 `staging_image`，例如 `ttl.sh/example-{id}-{version}-{revision}:24h`。Action 会用固定摘要通过 `crane` 中转，校验中转摘要与源摘要一致，再提交官方转存。复用工作流同时设置 `enable-image-staging: true`。
+
+如果已有无需登录的可信代理，可使用 `copy_source`，例如 `ghcr.nju.edu.cn/example/server:{tag}`。Action 会同时检查原始源和代理的目标平台摘要，只有两者完全一致才从代理转存。`copy_source` 与 `staging_image` 不能同时使用。
+
 `command` 模式还会收到 `LAZYCAT_SOURCE_DIR`、`LAZYCAT_OUTPUT_IMAGE`、`LAZYCAT_BUILD_FINGERPRINT` 和 `LAZYCAT_TARGET_PLATFORM`。Git revision 会被 checkout 到临时目录，任务结束后删除。
 
 ## 私有 GitHub/Gitee 仓库

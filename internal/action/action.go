@@ -34,6 +34,7 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/publishflow"
 	"github.com/wcaqrl/lazycat-action/internal/registry"
 	"github.com/wcaqrl/lazycat-action/internal/source"
+	"github.com/wcaqrl/lazycat-action/internal/staging"
 	"github.com/wcaqrl/lazycat-action/internal/store/official"
 	"github.com/wcaqrl/lazycat-action/internal/versioning"
 	"github.com/wcaqrl/lazycat-action/internal/yamledit"
@@ -181,6 +182,7 @@ type Dependencies struct {
 	PrepareSource        func(context.Context, prepare.Request) (prepare.Result, error)
 	InspectPreparedImage func(context.Context, string, platform.Target) (registry.Image, error)
 	DeliverPreparedImage func(context.Context, delivery.Request) (delivery.Result, error)
+	StageImage           func(context.Context, string, string, platform.Target) error
 	ReadManifestImages   func(string, []manifestedit.Target) ([]manifestedit.Current, error)
 	ApplyManifestImages  func(string, []manifestedit.Update) ([]manifestedit.Change, error)
 	ReadState            func(string) (pipelinestate.Lock, error)
@@ -233,6 +235,7 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 		}.Prepare,
 		InspectPreparedImage: registryClient.InspectTarget,
 		DeliverPreparedImage: deliveryResolver.Deliver,
+		StageImage:           staging.Copy,
 		ReadManifestImages:   manifestedit.Read,
 		ApplyManifestImages:  manifestedit.Apply,
 		ReadState:            pipelinestate.Read,
@@ -747,6 +750,8 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 		return Result{}, actionError(CodeBuildFailed, "source preparation failed", err)
 	}
 	imageResults := []map[string]any{}
+	stateImages := []pipelinestate.Image{}
+	imageRollback := []manifestedit.Update{}
 	if strings.TrimSpace(prepared.Image) != "" {
 		if len(cfg.Images) != 1 {
 			return Result{}, actionError(CodeConfigInvalid, "prepared image requires exactly one runtime image binding", nil)
@@ -783,12 +788,24 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 		}}); err != nil {
 			return Result{}, actionError(CodeConfigInvalid, "unable to update prepared image in the LazyCat Manifest", err)
 		}
+		rollbackSource := current[0].UpstreamRef
+		if strings.TrimSpace(rollbackSource) == "" {
+			rollbackSource = current[0].RuntimeRef
+		}
+		imageRollback = append(imageRollback, manifestedit.Update{Target: target, SourceRef: rollbackSource, RuntimeRef: current[0].RuntimeRef})
 		imageResults = append(imageResults, map[string]any{
+			"id": binding.ID, "target": binding.Target, "service": binding.Service,
+			"platform": cfg.Project.Target().Platform(), "tag": candidate.Tag,
 			"sourceRef": sourceReference, "sourceDigest": inspected.Digest,
 			"deliveredRef": delivered.RuntimeRef, "copied": delivered.Copied,
 		})
+		stateImages = append(stateImages, pipelinestate.Image{ID: binding.ID, SourceRef: sourceReference, SourceDigest: inspected.Digest, RuntimeRef: delivered.RuntimeRef})
 	} else if len(cfg.Images) != 0 {
-		return Result{}, actionError(CodeConfigInvalid, "runtime image binding requires build.prepare.output_image", nil)
+		var deliverErr *Error
+		imageResults, stateImages, imageRollback, deliverErr = deliverSourceImageSet(ctx, cfg, candidate, version, info.ManifestFile, dependencies)
+		if deliverErr != nil {
+			return Result{}, deliverErr
+		}
 	}
 	encodedImages, err := json.Marshal(imageResults)
 	if err != nil {
@@ -797,11 +814,13 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	result.ImageResults = encodedImages
 	change, err := dependencies.SetVersion(info.PackageFile, version)
 	if err != nil {
+		rollbackSourceImages(dependencies, info.ManifestFile, imageRollback)
 		return Result{}, actionError(CodeConfigInvalid, "unable to update package.yml version", err)
 	}
 	updated, err := dependencies.Inspect(ctx, cfg.Project)
 	if err != nil {
 		rollbackVersion(dependencies, info.PackageFile, change)
+		rollbackSourceImages(dependencies, info.ManifestFile, imageRollback)
 		return Result{}, actionError(CodeConfigInvalid, "unable to inspect source-updated LazyCat project", err)
 	}
 	built, err := dependencies.Build(ctx, actionbuild.Request{
@@ -810,13 +829,16 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	})
 	if err != nil {
 		rollbackVersion(dependencies, info.PackageFile, change)
+		rollbackSourceImages(dependencies, info.ManifestFile, imageRollback)
 		return Result{}, actionError(CodeBuildFailed, "LPK validation build failed after source update", err)
 	}
 	lock = pipelinestate.Lock{
-		Source: candidate, Fingerprint: fingerprint, Status: "packaged",
+		Source: candidate, Fingerprint: fingerprint, Status: "packaged", Images: stateImages,
 		Application: pipelinestate.Application{PackageID: built.PackageID, Version: built.Version, LPKSHA256: built.SHA256, Changelog: result.Changelog},
 	}
 	if err := dependencies.WriteState(stateFile, lock); err != nil {
+		rollbackVersion(dependencies, info.PackageFile, change)
+		rollbackSourceImages(dependencies, info.ManifestFile, imageRollback)
 		return Result{}, actionError(CodeBuildFailed, "unable to write packaged source pipeline state", err)
 	}
 	result.PackageID = built.PackageID
@@ -828,6 +850,157 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 		return Result{}, actionError(CodeBuildFailed, "unable to write source pipeline result", err)
 	}
 	return result, nil
+}
+
+func deliverSourceImageSet(ctx context.Context, cfg config.Config, candidate source.Candidate, applicationVersion, manifestFile string, dependencies Dependencies) ([]map[string]any, []pipelinestate.Image, []manifestedit.Update, *Error) {
+	if cfg.Build.Prepare.Mode != "images" {
+		return nil, nil, nil, actionError(CodeConfigInvalid, "runtime image bindings without a prepared image require build.prepare.mode=images", nil)
+	}
+	if dependencies.InspectPreparedImage == nil || dependencies.DeliverPreparedImage == nil || dependencies.ReadManifestImages == nil || dependencies.ApplyManifestImages == nil {
+		return nil, nil, nil, actionError(CodeConfigInvalid, "coordinated image delivery dependencies are unavailable", nil)
+	}
+	targets := make([]manifestedit.Target, 0, len(cfg.Images))
+	for _, binding := range cfg.Images {
+		targets = append(targets, manifestTarget(binding))
+	}
+	current, err := dependencies.ReadManifestImages(manifestFile, targets)
+	if err != nil || len(current) != len(cfg.Images) {
+		return nil, nil, nil, actionError(CodeConfigInvalid, "unable to read coordinated image targets", err)
+	}
+	currentByID := make(map[string]manifestedit.Current, len(current))
+	for _, value := range current {
+		currentByID[value.ID] = value
+	}
+
+	results := make([]map[string]any, 0, len(cfg.Images))
+	stateImages := make([]pipelinestate.Image, 0, len(cfg.Images))
+	updates := make([]manifestedit.Update, 0, len(cfg.Images))
+	rollback := make([]manifestedit.Update, 0, len(cfg.Images))
+	for _, binding := range cfg.Images {
+		old, found := currentByID[binding.ID]
+		if !found || strings.TrimSpace(old.RuntimeRef) == "" {
+			return nil, nil, nil, actionError(CodeConfigInvalid, fmt.Sprintf("manifest image target %q has no current runtime image", binding.ID), nil)
+		}
+		sourceReference, expandErr := expandSourceImage(binding.Source, candidate, applicationVersion)
+		if expandErr != nil {
+			return nil, nil, nil, actionError(CodeConfigInvalid, fmt.Sprintf("unable to expand source image %q", binding.ID), expandErr)
+		}
+		inspected, inspectErr := dependencies.InspectPreparedImage(ctx, sourceReference, cfg.Project.Target())
+		if inspectErr != nil {
+			return nil, nil, nil, actionError(CodePlatformNotFound, fmt.Sprintf("unable to inspect source image %q for the target platform", binding.ID), inspectErr)
+		}
+		pinnedReference := sourceReference
+		if !strings.Contains(pinnedReference, "@") {
+			pinnedReference += "@" + strings.TrimPrefix(inspected.Digest, "@")
+		}
+		deliveryReference := pinnedReference
+		copySourceReference := ""
+		stagingReference := ""
+		if binding.Delivery.CopySource != "" {
+			copySourceReference, expandErr = expandSourceImageForBinding(binding.Delivery.CopySource, binding, candidate, applicationVersion)
+			if expandErr != nil {
+				return nil, nil, nil, actionError(CodeConfigInvalid, fmt.Sprintf("unable to expand copy source %q", binding.ID), expandErr)
+			}
+			copySource, copyInspectErr := dependencies.InspectPreparedImage(ctx, copySourceReference, cfg.Project.Target())
+			if copyInspectErr != nil {
+				return nil, nil, nil, actionError(CodePlatformNotFound, fmt.Sprintf("unable to inspect copy source %q", binding.ID), copyInspectErr)
+			}
+			if !strings.EqualFold(strings.TrimSpace(copySource.Digest), strings.TrimSpace(inspected.Digest)) {
+				return nil, nil, nil, actionError(CodeImageCopyFailed, fmt.Sprintf("copy source digest mismatch for %q", binding.ID), nil)
+			}
+			deliveryReference = copySourceReference
+			if !strings.Contains(deliveryReference, "@") {
+				deliveryReference += "@" + strings.TrimPrefix(copySource.Digest, "@")
+			}
+		} else if binding.Delivery.StagingImage != "" {
+			if dependencies.StageImage == nil {
+				return nil, nil, nil, actionError(CodeConfigInvalid, "image staging dependency is unavailable", nil)
+			}
+			stagingReference, expandErr = expandSourceImageForBinding(binding.Delivery.StagingImage, binding, candidate, applicationVersion)
+			if expandErr != nil {
+				return nil, nil, nil, actionError(CodeConfigInvalid, fmt.Sprintf("unable to expand staging image %q", binding.ID), expandErr)
+			}
+			if stageErr := dependencies.StageImage(ctx, pinnedReference, stagingReference, cfg.Project.Target()); stageErr != nil {
+				return nil, nil, nil, actionError(CodeImageCopyFailed, fmt.Sprintf("unable to stage source image %q", binding.ID), stageErr)
+			}
+			staged, stageInspectErr := dependencies.InspectPreparedImage(ctx, stagingReference, cfg.Project.Target())
+			if stageInspectErr != nil {
+				return nil, nil, nil, actionError(CodePlatformNotFound, fmt.Sprintf("unable to inspect staged image %q", binding.ID), stageInspectErr)
+			}
+			if !strings.EqualFold(strings.TrimSpace(staged.Digest), strings.TrimSpace(inspected.Digest)) {
+				return nil, nil, nil, actionError(CodeImageCopyFailed, fmt.Sprintf("staged image digest mismatch for %q", binding.ID), nil)
+			}
+			deliveryReference = stagingReference
+			if !strings.Contains(deliveryReference, "@") {
+				deliveryReference += "@" + strings.TrimPrefix(staged.Digest, "@")
+			}
+		}
+		delivered, deliveryErr := dependencies.DeliverPreparedImage(ctx, delivery.Request{
+			Image: binding, Tag: candidate.Tag, SourceRef: deliveryReference, SourceDigest: inspected.Digest,
+			CurrentRef: old.RuntimeRef, Target: cfg.Project.Target(),
+		})
+		if deliveryErr != nil {
+			return nil, nil, nil, actionError(CodeImageCopyFailed, fmt.Sprintf("coordinated image delivery failed for %q", binding.ID), deliveryErr)
+		}
+		if strings.TrimSpace(delivered.RuntimeRef) == "" {
+			return nil, nil, nil, actionError(CodeImageCopyFailed, fmt.Sprintf("coordinated image delivery returned an empty runtime image for %q", binding.ID), nil)
+		}
+		updates = append(updates, manifestedit.Update{Target: manifestTarget(binding), SourceRef: pinnedReference, RuntimeRef: delivered.RuntimeRef})
+		rollbackSource := old.UpstreamRef
+		if strings.TrimSpace(rollbackSource) == "" {
+			rollbackSource = old.RuntimeRef
+		}
+		rollback = append(rollback, manifestedit.Update{Target: manifestTarget(binding), SourceRef: rollbackSource, RuntimeRef: old.RuntimeRef})
+		results = append(results, map[string]any{
+			"id": binding.ID, "target": binding.Target, "service": binding.Service,
+			"platform": cfg.Project.Target().Platform(), "tag": candidate.Tag,
+			"sourceRef": pinnedReference, "sourceDigest": inspected.Digest,
+			"copySourceRef": copySourceReference, "stagingRef": stagingReference,
+			"deliveredRef": delivered.RuntimeRef, "copied": delivered.Copied,
+		})
+		stateImages = append(stateImages, pipelinestate.Image{ID: binding.ID, SourceRef: pinnedReference, SourceDigest: inspected.Digest, RuntimeRef: delivered.RuntimeRef})
+	}
+	changes, err := dependencies.ApplyManifestImages(manifestFile, updates)
+	if err != nil || len(changes) != len(updates) {
+		if err == nil {
+			err = errors.New("manifest editor returned an incomplete coordinated image change set")
+		}
+		return nil, nil, nil, actionError(CodeConfigInvalid, "unable to update coordinated images in the LazyCat Manifest", err)
+	}
+	return results, stateImages, rollback, nil
+}
+
+func expandSourceImage(template string, candidate source.Candidate, applicationVersion string) (string, error) {
+	return expandSourceImageForBinding(template, config.Image{}, candidate, applicationVersion)
+}
+
+func expandSourceImageForBinding(template string, binding config.Image, candidate source.Candidate, applicationVersion string) (string, error) {
+	shortRevision := strings.TrimPrefix(candidate.Revision, "sha256:")
+	if len(shortRevision) > 12 {
+		shortRevision = shortRevision[:12]
+	}
+	replacements := map[string]string{
+		"{tag}": candidate.Tag, "{source_version}": candidate.Version,
+		"{version}": applicationVersion, "{revision}": shortRevision, "{id}": binding.ID,
+	}
+	result := strings.TrimSpace(template)
+	for placeholder, value := range replacements {
+		result = strings.ReplaceAll(result, placeholder, value)
+	}
+	if result == "" {
+		return "", errors.New("source image template is empty")
+	}
+	if strings.ContainsAny(result, "{}") {
+		return "", fmt.Errorf("source image template %q contains an unsupported placeholder", template)
+	}
+	return result, nil
+}
+
+func rollbackSourceImages(dependencies Dependencies, manifestFile string, updates []manifestedit.Update) {
+	if len(updates) == 0 || dependencies.ApplyManifestImages == nil {
+		return
+	}
+	_, _ = dependencies.ApplyManifestImages(manifestFile, updates)
 }
 
 func sourceApplicationVersion(candidateVersion, currentVersion string, lock pipelinestate.Lock, fingerprint string) (string, error) {
