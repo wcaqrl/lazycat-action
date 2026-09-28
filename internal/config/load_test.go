@@ -950,6 +950,69 @@ stores:
 	}
 }
 
+func TestLoadVersion2GitHubReleaseChangelog(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "lazycat.yml")
+	data := []byte(`version: 2
+project:
+  output: dist/app.lpk
+source:
+  kind: git
+  url: https://github.com/usememos/memos.git
+  select:
+    strategy: semver-tag
+changelog:
+  mode: github-release
+  git_url: https://github.com/usememos/memos.git
+update:
+  strategy: publish
+build:
+  prepare:
+    mode: images
+images:
+  - id: memos
+    target: service
+    service: memos
+    source: docker.io/neosmemo/memos:{source_version}
+    delivery:
+      mode: lazycat
+stores:
+  official:
+    enabled: true
+`)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.Load(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Changelog.Mode != "github-release" {
+		t.Fatalf("changelog=%#v", got.Changelog)
+	}
+}
+
+func TestLoadRejectsUnknownChangelogMode(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "lazycat.yml")
+	data := []byte(`version: 2
+project:
+  output: dist/app.lpk
+source:
+  kind: git
+  url: https://github.com/usememos/memos.git
+changelog:
+  mode: everything
+  git_url: https://github.com/usememos/memos.git
+update:
+  strategy: publish
+`)
+	if err := os.WriteFile(filename, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(filename); err == nil || !strings.Contains(err.Error(), "changelog.mode") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestLoadRejectsPrivateStoreField(t *testing.T) {
 	filename := filepath.Join(t.TempDir(), "lazycat.yml")
 	data := []byte(`version: 1

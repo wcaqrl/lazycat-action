@@ -1,6 +1,8 @@
 package source_test
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +12,46 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/source"
 )
+
+func TestChangelogUsesGitHubReleaseBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/repos/usememos/memos/releases/tags/v0.31.0" {
+			t.Fatalf("path=%q", request.URL.Path)
+		}
+		if request.Header.Get("Authorization") != "Bearer test-token" {
+			t.Fatalf("authorization=%q", request.Header.Get("Authorization"))
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = response.Write([]byte(`{"tag_name":"v0.31.0","body":"## What's Changed\r\n\r\n- Add spaces","draft":false,"prerelease":false}`))
+	}))
+	defer server.Close()
+	runner := source.GitRunner{
+		HTTPClient:    server.Client(),
+		GitHubAPIBase: server.URL,
+		Getenv: func(key string) string {
+			if key == "GITHUB_TOKEN" {
+				return "test-token"
+			}
+			return ""
+		},
+	}
+	result, err := runner.Changelog(t.Context(), config.Changelog{Mode: "github-release", GitURL: "https://github.com/usememos/memos.git"},
+		source.Candidate{Kind: "git", Tag: "v0.31.0"}, source.Candidate{}, "0.26.2", "0.31.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result != "Upstream 0.31.0\n## What's Changed\n\n- Add spaces" {
+		t.Fatalf("result=%q", result)
+	}
+}
+
+func TestChangelogRejectsGitHubReleaseFromAnotherHost(t *testing.T) {
+	_, err := (source.GitRunner{}).Changelog(t.Context(), config.Changelog{Mode: "github-release", GitURL: "https://gitee.com/usememos/memos.git"},
+		source.Candidate{Kind: "git", Tag: "v0.31.0"}, source.Candidate{}, "0.26.2", "0.31.0")
+	if err == nil || !strings.Contains(err.Error(), "github.com") {
+		t.Fatalf("err=%v", err)
+	}
+}
 
 func TestChangelogUsesOnlyCommitsBetweenTags(t *testing.T) {
 	directory := t.TempDir()

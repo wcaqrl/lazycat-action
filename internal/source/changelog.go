@@ -2,8 +2,11 @@ package source
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -24,6 +27,9 @@ func (runner GitRunner) Changelog(ctx context.Context, settings config.Changelog
 	}
 	if parsed, err := url.Parse(settings.GitURL); err == nil && parsed.User != nil {
 		return "", errors.New("changelog Git URL must not contain credentials")
+	}
+	if strings.EqualFold(strings.TrimSpace(settings.Mode), "github-release") {
+		return runner.githubReleaseChangelog(ctx, settings.GitURL, candidate.Tag, targetVersion)
 	}
 	if !commitIDPattern.MatchString(candidate.Revision) && candidate.Tag == "" {
 		return "", errors.New("changelog requires a source Git revision or a release tag")
@@ -122,4 +128,86 @@ func (runner GitRunner) Changelog(ctx context.Context, settings config.Changelog
 		header += " (since " + currentVersion + ")"
 	}
 	return header + "\n" + strings.Join(lines, "\n"), nil
+}
+
+func (runner GitRunner) githubReleaseChangelog(ctx context.Context, gitURL, tag, targetVersion string) (string, error) {
+	owner, repository, err := githubRepository(gitURL)
+	if err != nil {
+		return "", err
+	}
+	if strings.TrimSpace(tag) == "" {
+		return "", errors.New("GitHub release changelog requires a release tag")
+	}
+	base := strings.TrimRight(strings.TrimSpace(runner.GitHubAPIBase), "/")
+	if base == "" {
+		base = "https://api.github.com"
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", base, url.PathEscape(owner), url.PathEscape(repository), url.PathEscape(tag))
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("User-Agent", "lazycat-action")
+	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	if runner.Getenv != nil {
+		if token := strings.TrimSpace(runner.Getenv("GITHUB_TOKEN")); token != "" {
+			request.Header.Set("Authorization", "Bearer "+token)
+		}
+	}
+	client := runner.HTTPClient
+	if client == nil {
+		client = http.DefaultClient
+	}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("read GitHub release %q: %w", tag, err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return "", fmt.Errorf("read GitHub release %q: HTTP %d: %s", tag, response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var release struct {
+		TagName    string `json:"tag_name"`
+		Body       string `json:"body"`
+		Draft      bool   `json:"draft"`
+		Prerelease bool   `json:"prerelease"`
+	}
+	decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
+	if err := decoder.Decode(&release); err != nil {
+		return "", fmt.Errorf("decode GitHub release %q: %w", tag, err)
+	}
+	if release.Draft || release.Prerelease {
+		return "", fmt.Errorf("GitHub release %q is not a stable published release", tag)
+	}
+	if release.TagName != tag {
+		return "", fmt.Errorf("GitHub release tag mismatch: requested %q, received %q", tag, release.TagName)
+	}
+	body := strings.TrimSpace(strings.ReplaceAll(release.Body, "\r\n", "\n"))
+	if body == "" {
+		return "", fmt.Errorf("GitHub release %q has an empty body", tag)
+	}
+	const maximumRunes = 12000
+	runes := []rune(body)
+	if len(runes) > maximumRunes {
+		body = string(runes[:maximumRunes]) + "\n\n…"
+	}
+	return "Upstream " + targetVersion + "\n" + body, nil
+}
+
+func githubRepository(raw string) (string, string, error) {
+	value := strings.TrimSpace(raw)
+	if strings.HasPrefix(value, "git@github.com:") {
+		value = "https://github.com/" + strings.TrimPrefix(value, "git@github.com:")
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || !strings.EqualFold(parsed.Hostname(), "github.com") {
+		return "", "", errors.New("github-release changelog requires a github.com Git URL")
+	}
+	parts := strings.Split(strings.Trim(strings.TrimSuffix(parsed.Path, ".git"), "/"), "/")
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		return "", "", errors.New("github-release changelog requires an owner/repository Git URL")
+	}
+	return parts[0], parts[1], nil
 }

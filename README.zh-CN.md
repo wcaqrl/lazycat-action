@@ -41,7 +41,17 @@ changelog:
   max_commits: 20
 ```
 
-发现新镜像后，从 Git 读取“当前应用版本的标签 → 新镜像标签”之间的提交标题作为更新日志，`v1.2.3` 和 `1.2.3` 标签均可匹配。Git 源也可以配置相同地址；私有仓库可写 `auth_ref: source`，沿用 `SOURCE_SSH_KEY` 和 `SOURCE_KNOWN_HOSTS` 或 `SOURCE_TOKEN`，无需在 YAML 放密钥。当前应用版本没有上游标签时只列出目标版本最新一条提交；目标版本标签不存在则在转存、送审前报错，避免提交错误说明。
+默认从 Git 读取“当前应用版本的标签 → 新镜像标签”之间的提交标题作为更新日志，`v1.2.3` 和 `1.2.3` 标签均可匹配。Git 源也可以配置相同地址；私有仓库可写 `auth_ref: source`，沿用 `SOURCE_SSH_KEY` 和 `SOURCE_KNOWN_HOSTS` 或 `SOURCE_TOKEN`，无需在 YAML 放密钥。当前应用版本没有上游标签时只列出目标版本最新一条提交；目标版本标签不存在则在转存、送审前报错，避免提交错误说明。
+
+GitHub 项目可以直接使用目标版本的 Release 正文，避免把版本之间的全部提交当作本次更新日志：
+
+```yaml
+changelog:
+  mode: github-release
+  git_url: https://github.com/example/application.git
+```
+
+此模式要求选中的稳定标签已经发布对应 GitHub Release。Release 不存在、仍是草稿或预发布时，流程会在镜像转存之前停止。
 
 只读 `dry-run` 的结果会显示 `changelog`，正式运行会把它写入锁文件供失败后重试，并发送到配置的 `changelog_locales`。目前各语言使用相同的上游原文，不做自动翻译。工作流的 `changelog` 输入或 CLI 的 `--changelog` 可人工覆盖；没有配置 `changelog.git_url` 的适配项目仍使用旧的通用版本说明。
 

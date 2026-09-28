@@ -40,6 +40,7 @@ type State struct {
 // Changelog selects the Git history corresponding to a source release.
 // For OCI sources, GitURL must point to the repository that publishes its tags.
 type Changelog struct {
+	Mode       string `yaml:"mode"`
 	GitURL     string `yaml:"git_url"`
 	AuthRef    string `yaml:"auth_ref"`
 	MaxCommits int    `yaml:"max_commits"`

@@ -1,6 +1,6 @@
 # Configuration reference
 
-`version: 2` adds an external `source`, resumable `state`, and `build.prepare` phase. Git sources support `branch-head`, `tag`, `release`, and `semver-tag`; `release` uses the matching immutable Git tag. OCI sources select a target-platform digest.
+`version: 2` adds an external `source`, resumable `state`, and `build.prepare` phase. Git sources support `branch-head`, `tag`, `release`, and `semver-tag`; `release` uses the matching immutable Git tag. OCI sources select a target-platform digest. `changelog.mode: github-release` reads the selected stable tag's published GitHub Release body; the default `git-commits` mode reads commit subjects between tags.
 
 `auth_ref: source` resolves these environment variables without putting credentials in YAML:
 

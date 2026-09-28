@@ -207,6 +207,10 @@ func validate(value Config) error {
 			return err
 		}
 		if value.Changelog.GitURL != "" {
+			mode := strings.ToLower(strings.TrimSpace(value.Changelog.Mode))
+			if mode != "" && mode != "git-commits" && mode != "github-release" {
+				return errors.New("changelog.mode must be git-commits or github-release")
+			}
 			if strings.Contains(value.Changelog.GitURL, "://") {
 				if parsed, err := url.Parse(value.Changelog.GitURL); err != nil || parsed.User != nil {
 					return errors.New("changelog.git_url must be a valid URL without credentials")
@@ -215,8 +219,11 @@ func validate(value Config) error {
 			if value.Changelog.MaxCommits < 0 || value.Changelog.MaxCommits > 50 {
 				return errors.New("changelog.max_commits must be between 1 and 50 when set")
 			}
-		} else if value.Changelog.AuthRef != "" || value.Changelog.MaxCommits != 0 {
-			return errors.New("changelog.auth_ref and max_commits require changelog.git_url")
+			if mode == "github-release" && value.Changelog.MaxCommits != 0 {
+				return errors.New("changelog.max_commits is only valid with git-commits mode")
+			}
+		} else if value.Changelog.Mode != "" || value.Changelog.AuthRef != "" || value.Changelog.MaxCommits != 0 {
+			return errors.New("changelog.mode, auth_ref, and max_commits require changelog.git_url")
 		}
 		if err := validateProjectPath("state.file", value.State.File); err != nil {
 			return err

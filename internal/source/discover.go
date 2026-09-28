@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -110,8 +111,10 @@ func (discoverer Discoverer) discoverOCI(ctx context.Context, request Request) (
 }
 
 type GitRunner struct {
-	Getenv func(string) string
-	Run    func(context.Context, []string, []string) ([]byte, error)
+	Getenv        func(string) string
+	Run           func(context.Context, []string, []string) ([]byte, error)
+	HTTPClient    *http.Client
+	GitHubAPIBase string
 }
 
 func (runner GitRunner) Checkout(ctx context.Context, source config.Source, candidate Candidate, destination string) error {

@@ -321,6 +321,7 @@ jobs:
           LZC_API_HOST: ${{ secrets.LZC_API_HOST }}
           LZC_API_TOKEN: ${{ secrets.LZC_API_TOKEN }}
           LAZYCAT_TOKEN: ${{ secrets.LAZYCAT_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
           LAZYCAT_AUTH_SOURCE_SSH_KEY: ${{ secrets.SOURCE_SSH_KEY }}
           LAZYCAT_AUTH_SOURCE_KNOWN_HOSTS: ${{ secrets.SOURCE_KNOWN_HOSTS }}
           LAZYCAT_AUTH_SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
