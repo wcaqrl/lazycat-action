@@ -22,12 +22,12 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/wcaqrl/lazycat-action/internal/config"
-	"github.com/wcaqrl/lazycat-action/internal/store/official"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/appstore"
 	"github.com/lib-x/lzc-toolkit-go/auth"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
+	"github.com/wcaqrl/lazycat-action/internal/config"
+	"github.com/wcaqrl/lazycat-action/internal/store/official"
 )
 
 func TestPublisherRetryDefaultsOffAfterOneCompleteAttempt(t *testing.T) {
@@ -1303,6 +1303,76 @@ func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
 	}
 	if !created || !uploaded || !reviewed || !result.Published || !result.Created || result.PackageID != "cloud.lazycat.apps.publish-demo" || result.Version != "1.0.0" || result.SHA256 != digest || result.UploadURL != "/demo.lpk" {
 		t.Fatalf("created=%v uploaded=%v reviewed=%v result=%#v", created, uploaded, reviewed, result)
+	}
+}
+
+func TestPublisherSubmitsAutomationChannelForBothProtocols(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		sdk    bool
+		prefix string
+	}{
+		{name: "legacy session", prefix: "/api/v3/developer"},
+		{name: "SDK PAT", sdk: true, prefix: "/sdk/v3/developer"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path, digest := publishLPK(t)
+			reviewed := false
+			server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+				var payload string
+				switch request.URL.Path {
+				case test.prefix + "/app/check/exist":
+					payload = `{"exist":true}`
+				case test.prefix + "/app/lpk/upload":
+					if _, err := io.Copy(io.Discard, request.Body); err != nil {
+						t.Error(err)
+					}
+					payload = fmt.Sprintf(`{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","lpkSize":123}`, digest)
+				case test.prefix + "/app/cloud.lazycat.apps.publish-demo/review/create":
+					reviewed = true
+					if request.Method != http.MethodPost || request.Header.Get("Content-Type") != "application/json" {
+						t.Errorf("unexpected review method=%q content-type=%q", request.Method, request.Header.Get("Content-Type"))
+					}
+					var body struct {
+						SubmitChannel int                        `json:"submit_channel"`
+						Version       map[string]json.RawMessage `json:"version"`
+					}
+					if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+						t.Error(err)
+					}
+					if body.SubmitChannel != 5 {
+						t.Errorf("submit_channel=%d, want 5", body.SubmitChannel)
+					}
+					if _, nested := body.Version["submit_channel"]; nested {
+						t.Error("submit_channel must describe the review, not the version")
+					}
+					payload = `{"success":true}`
+				default:
+					http.NotFound(response, request)
+					return
+				}
+				if test.sdk {
+					if request.Header.Get("X-API-Token") != "ci-token" || request.Header.Get("X-User-Token") != "" {
+						t.Error("SDK request did not retain PAT authentication")
+					}
+					_, _ = fmt.Fprintf(response, `{"errorCode":0,"msg":"ok","data":%s}`, payload)
+				} else {
+					if request.Header.Get("X-User-Token") != "ci-token" {
+						t.Error("legacy request did not retain session authentication")
+					}
+					_, _ = io.WriteString(response, payload)
+				}
+			}))
+			defer server.Close()
+
+			result, err := (official.Publisher{BaseURL: server.URL, SDK: test.sdk, HTTPClient: server.Client()}).Publish(t.Context(), official.Request{
+				Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
+				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+			})
+			if err != nil || !reviewed || !result.Published {
+				t.Fatalf("err=%v reviewed=%t result=%#v", err, reviewed, result)
+			}
+		})
 	}
 }
 

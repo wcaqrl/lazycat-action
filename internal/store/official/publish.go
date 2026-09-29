@@ -21,13 +21,13 @@ import (
 	"time"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/wcaqrl/lazycat-action/internal/config"
-	"github.com/wcaqrl/lazycat-action/internal/httpx"
 	"github.com/cloudflare/backoff"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	"github.com/lib-x/lzc-toolkit-go/appstore"
 	appmedia "github.com/lib-x/lzc-toolkit-go/appstore/media"
 	"github.com/lib-x/lzc-toolkit-go/auth"
+	"github.com/wcaqrl/lazycat-action/internal/config"
+	"github.com/wcaqrl/lazycat-action/internal/httpx"
 )
 
 var sha256Pattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -43,6 +43,7 @@ func (err *PendingReviewError) Error() string {
 const (
 	maxResponseBytes                = 4 << 20
 	maxOfficialResponseMessageBytes = 512
+	reviewSubmitChannelAutomation   = 5
 )
 
 type Request struct {
@@ -573,8 +574,9 @@ func uploadLPK(ctx context.Context, client *http.Client, baseURL, token, filenam
 
 func submitReview(ctx context.Context, client *http.Client, baseURL, token string, upload appstore.UploadInfo, infos []appstore.ApplicationInfo, changelogs map[string]string) error {
 	body := struct {
-		Infos   []appstore.ApplicationInfo `json:"infos,omitempty"`
-		Version struct {
+		SubmitChannel uint8                      `json:"submit_channel"`
+		Infos         []appstore.ApplicationInfo `json:"infos,omitempty"`
+		Version       struct {
 			Package              string            `json:"package"`
 			Name                 string            `json:"name"`
 			IconPath             string            `json:"icon_path"`
@@ -586,7 +588,7 @@ func submitReview(ctx context.Context, client *http.Client, baseURL, token strin
 			ImageSize            int64             `json:"image_size"`
 			Changelogs           map[string]string `json:"changelogs"`
 		} `json:"version"`
-	}{}
+	}{SubmitChannel: reviewSubmitChannelAutomation}
 	body.Infos = infos
 	body.Version.Package = upload.Package
 	body.Version.Name = upload.Version
