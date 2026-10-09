@@ -411,9 +411,11 @@ jobs:
           mkdir -p "${directory}"
           name="${PACKAGE_ID}-v${VERSION}.lpk"
           cp -- "${LPK_PATH}" "${directory}/${name}"
-          echo "path=${directory}/${name}" >>"${GITHUB_OUTPUT}"
-          echo "lpk-name=${name}" >>"${GITHUB_OUTPUT}"
-          echo "commit=${PR_COMMIT:-$(git rev-parse HEAD)}" >>"${GITHUB_OUTPUT}"
+          {
+            echo "path=${directory}/${name}"
+            echo "lpk-name=${name}"
+            echo "commit=${PR_COMMIT:-$(git rev-parse HEAD)}"
+          } >>"${GITHUB_OUTPUT}"
 
       - name: Upload validated LPK
         if: steps.handoff.outputs.path != ''
