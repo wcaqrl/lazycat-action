@@ -676,13 +676,6 @@ func runCheck(ctx context.Context, input Input, cfg config.Config, info project.
 }
 
 func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info project.Info, officialReviewVersion string, dependencies Dependencies) (Result, error) {
-	if officialReviewVersion != "" {
-		logger := dependencies.Logger
-		if logger == nil {
-			logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-		}
-		return pausedOfficialReviewResult(input, OperationCheck, officialReviewVersion, info, cfg, dependencies, logger, "automatic source publication paused while an official review is pending")
-	}
 	if dependencies.DiscoverSource == nil || dependencies.PrepareSource == nil || dependencies.ReadState == nil || dependencies.WriteState == nil || dependencies.Fingerprint == nil {
 		return Result{}, actionError(CodeConfigInvalid, "source pipeline dependencies are unavailable", nil)
 	}
@@ -699,6 +692,10 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to read source pipeline state", err)
 	}
+	if candidate.Kind == string(config.SourceKindGit) && candidate.Tag != "" && lock.Source.Tag == candidate.Tag &&
+		candidate.Revision != "" && lock.Source.Revision != "" && candidate.Revision != lock.Source.Revision {
+		return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("upstream Git tag %q moved from revision %s to %s", candidate.Tag, lock.Source.Revision, candidate.Revision), nil)
+	}
 	terminalStatus := "submitted"
 	if cfg.Update.Strategy == config.StrategyPull {
 		terminalStatus = "packaged"
@@ -707,6 +704,22 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	version, err := sourceApplicationVersion(candidate.Version, info.Version, lock, fingerprint)
 	if err != nil {
 		return Result{}, actionError(CodeVersionNotFound, "unable to derive the next application version", err)
+	}
+	if officialReviewVersion != "" {
+		waiting, waitingErr := semver.StrictNewVersion(strings.TrimSpace(officialReviewVersion))
+		selected, selectedErr := semver.StrictNewVersion(strings.TrimSpace(version))
+		if waitingErr != nil || selectedErr != nil {
+			return Result{}, actionError(CodeConfigInvalid, fmt.Sprintf("unable to compare official review version %q with selected source version %q", officialReviewVersion, version), errors.Join(waitingErr, selectedErr))
+		}
+		if !waiting.LessThan(selected) {
+			input.Version = version
+			input.Tag = "v" + version
+			logger := dependencies.Logger
+			if logger == nil {
+				logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+			}
+			return pausedOfficialReviewResult(input, OperationCheck, officialReviewVersion, info, cfg, dependencies, logger, "automatic source publication paused because the pending review covers the selected source version")
+		}
 	}
 	encodedSource, err := json.Marshal(candidate)
 	if err != nil {
@@ -720,6 +733,7 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	result.SourceResult = encodedSource
 	result.Fingerprint = fingerprint
 	result.StateFile = stateFile
+	result.OfficialReviewVersion = officialReviewVersion
 	if changed {
 		if input.Changelog != "" {
 			result.Changelog = input.Changelog

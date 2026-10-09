@@ -211,7 +211,7 @@ func (flow Flow) publishOfficial(ctx context.Context, request Request, result Re
 		Application:     request.Config.Stores.Official.Application, DefaultName: request.Project.Name,
 		Retry: request.Config.Stores.Official.Retry, Logger: logger,
 		GuardPendingReview:     request.GuardOfficialReview,
-		ContinueIfNewerVersion: request.Config.Update.VersionSource.Type == config.VersionSourceImage && request.Config.Stores.Official.ShouldContinueIfNewerVersion(),
+		ContinueIfNewerVersion: request.Config.Stores.Official.ShouldContinueIfNewerVersion(),
 	}
 	if request.DryRun {
 		result.Official = &official.Result{PackageID: input.PackageID, Version: input.Version, SHA256: input.SHA256}

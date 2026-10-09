@@ -22,6 +22,8 @@
 |---|---|---|
 | OCI 镜像 | 稳定 SemVer Tag | 目标平台 image digest |
 | Git Tag/Release Tag | 最高稳定 SemVer Tag | Tag 对应的 commit SHA |
+
+当官方商店已有待审核版本时，Action 仍会检查上游：候选版本更高则继续构建和提交，由官方商店在接收新审核后自动取消旧审核；候选版本相同或更低时暂停。同一个已记录 Git Tag 如果被移动到另一个 commit，流程会直接报错，不会用相同版本号静默发布不同源码。
 | Git 分支 | 指定分支或远程默认分支 | 分支 HEAD commit SHA |
 
 最终指纹还包含 `build.prepare` 命令、Dockerfile、构建参数和构建上下文内容。上游不变但插件列表或 Dockerfile 改变时，仍会生成新版本。

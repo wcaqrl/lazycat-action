@@ -14,6 +14,8 @@ For a concrete three-repository setup, see [poster-adapter](https://github.com/w
 
 - OCI sources compare the selected platform image digest.
 - Git tags compare the immutable commit behind the highest matching stable SemVer tag.
+- A newer source version may replace an older pending official review. Equal or older candidates pause, while the official store atomically cancels the previous pending review after accepting the newer submission.
+- If a previously recorded Git tag moves to another commit, the pipeline stops instead of silently publishing different source under the same release tag.
 - Branch sources compare the branch HEAD commit. `branch: auto` resolves the remote symbolic `HEAD` instead of assuming `main` or `master`.
 - The final fingerprint also includes the preparation command, Dockerfile, build arguments, and build-context contents.
 

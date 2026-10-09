@@ -38,6 +38,25 @@ func TestPublishOfficialVerifiesAndPublishes(t *testing.T) {
 	}
 }
 
+func TestPublishOfficialAllowsNewerVersionToReplacePendingReviewForVersion2Source(t *testing.T) {
+	flow := officialFlow()
+	flow.PublishOfficial = func(_ context.Context, request official.Request) (official.Result, error) {
+		if !request.GuardPendingReview || !request.ContinueIfNewerVersion {
+			t.Fatalf("request=%#v", request)
+		}
+		return official.Result{Published: true, PackageID: request.PackageID, Version: request.Version, SHA256: request.SHA256}, nil
+	}
+	cfg := officialConfig()
+	cfg.Version = 2
+	result, err := flow.Publish(t.Context(), publishflow.Request{
+		Config: cfg, Project: projectInfo(), LPKPath: "/repo/dist/app.lpk", Version: "1.2.3",
+		Changelog: "Release notes", ExpectedSHA256: artifactSHA, GuardOfficialReview: true,
+	})
+	if err != nil || result.Official == nil || !result.Official.Published {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
 func TestPublishOfficialSkipsExistingVersion(t *testing.T) {
 	flow := officialFlow()
 	flow.LookupVersion = func(context.Context, storelookup.Request) (storelookup.Result, error) {

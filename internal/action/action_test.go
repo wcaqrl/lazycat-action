@@ -164,6 +164,104 @@ func TestRunVersion2BranchSourcePackagesAndPersistsResumableState(t *testing.T) 
 	}
 }
 
+func TestRunVersion2SourceOnlyPausesWhenPendingReviewCoversCandidate(t *testing.T) {
+	tests := []struct {
+		name           string
+		waitingVersion string
+		candidate      source.Candidate
+		wantPaused     bool
+	}{
+		{
+			name: "equal candidate pauses", waitingVersion: "1.3.0", wantPaused: true,
+			candidate: source.Candidate{Kind: "git", Version: "1.3.0", Tag: "v1.3.0", Ref: "refs/tags/v1.3.0", Revision: strings.Repeat("a", 40)},
+		},
+		{
+			name: "newer candidate continues", waitingVersion: "1.2.0",
+			candidate: source.Candidate{Kind: "git", Version: "1.3.0", Tag: "v1.3.0", Ref: "refs/tags/v1.3.0", Revision: strings.Repeat("a", 40)},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			root := t.TempDir()
+			cfg := config.Config{
+				Version: 2,
+				Project: config.Project{Root: root, PackageFile: "package.yml", Output: "dist/app.lpk", TargetArch: "amd64"},
+				Source:  config.Source{Kind: config.SourceKindGit, URL: "https://github.com/acme/app.git", Select: config.SourceSelect{Strategy: "semver-tag"}},
+				State:   config.State{File: ".lazycat-action.lock.yml"},
+				Update:  config.Update{Strategy: config.StrategyPublish},
+				Build:   config.Build{Prepare: config.Prepare{Mode: "images"}},
+				Stores:  config.Stores{Official: config.OfficialStore{Enabled: true}},
+			}
+			discoveries := 0
+			deps := action.Dependencies{
+				Host: platform.Host{OS: "linux", Arch: "amd64"}, ResultDir: filepath.Join(root, "results"),
+				LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+				Inspect: func(context.Context, config.Project) (project.Info, error) {
+					return project.Info{Root: root, PackageFile: filepath.Join(root, "package.yml"), PackageID: "cloud.lazycat.source", Version: "1.3.0"}, nil
+				},
+				SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+				Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+					return actionbuild.Result{}, nil
+				},
+				WaitingReviewVersion: func(context.Context, string) (string, bool, error) { return test.waitingVersion, true, nil },
+				DiscoverSource: func(context.Context, source.Request) (source.Candidate, error) {
+					discoveries++
+					return test.candidate, nil
+				},
+				PrepareSource: func(context.Context, prepare.Request) (prepare.Result, error) {
+					t.Fatal("unchanged source must not be prepared")
+					return prepare.Result{}, nil
+				},
+				ReadState: func(string) (pipelinestate.Lock, error) {
+					return pipelinestate.Lock{Source: test.candidate, Fingerprint: "sha256:same", Status: "submitted", Application: pipelinestate.Application{Version: "1.3.0"}}, nil
+				},
+				WriteState:  func(string, pipelinestate.Lock) error { return nil },
+				Fingerprint: func(context.Context, config.Config, source.Candidate) (string, error) { return "sha256:same", nil },
+			}
+			result, err := action.Run(t.Context(), action.Input{Operation: action.OperationAuto, EventName: "schedule"}, deps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if discoveries != 1 || result.OfficialReviewPending != test.wantPaused || result.OfficialReviewVersion != test.waitingVersion {
+				t.Fatalf("discoveries=%d result=%#v", discoveries, result)
+			}
+		})
+	}
+}
+
+func TestRunVersion2RejectsMovedGitTag(t *testing.T) {
+	root := t.TempDir()
+	cfg := config.Config{
+		Version: 2,
+		Project: config.Project{Root: root, PackageFile: "package.yml", Output: "dist/app.lpk", TargetArch: "amd64"},
+		Source:  config.Source{Kind: config.SourceKindGit, URL: "https://github.com/acme/app.git", Select: config.SourceSelect{Strategy: "semver-tag"}},
+		State:   config.State{File: ".lazycat-action.lock.yml"}, Update: config.Update{Strategy: config.StrategyPublish},
+		Build: config.Build{Prepare: config.Prepare{Mode: "images"}},
+	}
+	oldCandidate := source.Candidate{Kind: "git", Version: "1.3.0", Tag: "v1.3.0", Ref: "refs/tags/v1.3.0", Revision: strings.Repeat("a", 40)}
+	newCandidate := oldCandidate
+	newCandidate.Revision = strings.Repeat("b", 40)
+	deps := action.Dependencies{
+		Host: platform.Host{OS: "linux", Arch: "amd64"}, LoadConfig: func(string) (config.Config, error) { return cfg, nil },
+		Inspect: func(context.Context, config.Project) (project.Info, error) {
+			return project.Info{Root: root, PackageID: "cloud.lazycat.source", Version: "1.3.0"}, nil
+		},
+		SetVersion: func(string, string) (yamledit.Change, error) { return yamledit.Change{}, nil },
+		Build: func(context.Context, actionbuild.Request) (actionbuild.Result, error) {
+			return actionbuild.Result{}, nil
+		},
+		DiscoverSource: func(context.Context, source.Request) (source.Candidate, error) { return newCandidate, nil },
+		PrepareSource:  func(context.Context, prepare.Request) (prepare.Result, error) { return prepare.Result{}, nil },
+		ReadState:      func(string) (pipelinestate.Lock, error) { return pipelinestate.Lock{Source: oldCandidate}, nil },
+		WriteState:     func(string, pipelinestate.Lock) error { return nil },
+		Fingerprint:    func(context.Context, config.Config, source.Candidate) (string, error) { return "sha256:changed", nil },
+	}
+	_, err := action.Run(t.Context(), action.Input{Operation: action.OperationCheck}, deps)
+	if err == nil || !strings.Contains(err.Error(), "upstream Git tag \"v1.3.0\" moved") {
+		t.Fatalf("err=%v", err)
+	}
+}
+
 func TestRunVersion2PinsPreparedImageBeforeOfficialCopy(t *testing.T) {
 	root := t.TempDir()
 	digest := "sha256:" + strings.Repeat("a", 64)
