@@ -38,6 +38,11 @@ on:
         type: boolean
         required: false
         default: false
+      retry-rejected:
+        description: Manually rebuild a rejected upstream source with a new application version.
+        type: boolean
+        required: false
+        default: false
       toolchains:
         description: Comma-separated subset of go,node,rust,docker.
         type: string
@@ -133,21 +138,23 @@ on:
       fingerprint:
         value: ${{ jobs.lazycat.outputs.fingerprint }}
       state-file:
-        value: ${{ jobs.lazycat.outputs.state-file }}
+        value: ${{ jobs.submit-official.outputs.state-file || jobs.lazycat.outputs.state-file }}
+      review-status:
+        value: ${{ jobs.submit-official.outputs.review-status || jobs.lazycat.outputs.review-status }}
       store-results:
-        value: ${{ jobs.lazycat.outputs.store-results }}
+        value: ${{ jobs.submit-official.outputs.store-results || jobs.lazycat.outputs.store-results }}
       official-store-enabled:
         value: ${{ jobs.lazycat.outputs.official-store-enabled }}
       official-review-pending:
-        value: ${{ jobs.lazycat.outputs.official-review-pending }}
+        value: ${{ jobs.submit-official.outputs.official-review-pending || jobs.lazycat.outputs.official-review-pending }}
       official-review-version:
-        value: ${{ jobs.lazycat.outputs.official-review-version }}
+        value: ${{ jobs.submit-official.outputs.official-review-version || jobs.lazycat.outputs.official-review-version }}
       update-strategy:
         value: ${{ jobs.lazycat.outputs.update-strategy }}
       channel:
         value: ${{ jobs.lazycat.outputs.channel }}
       result-file:
-        value: ${{ jobs.lazycat.outputs.result-file }}
+        value: ${{ jobs.submit-official.outputs.result-file || jobs.lazycat.outputs.result-file }}
       runner-arch:
         value: ${{ jobs.lazycat.outputs.runner-arch }}
       target-platform:
@@ -185,16 +192,19 @@ jobs:
       source-result: ${{ steps.lazycat.outputs.source-result }}
       changelog: ${{ steps.lazycat.outputs.changelog }}
       fingerprint: ${{ steps.lazycat.outputs.fingerprint }}
-      state-file: ${{ steps.publish.outputs.state-file || steps.lazycat.outputs.state-file }}
-      store-results: ${{ steps.publish.outputs.store-results || steps.lazycat.outputs.store-results }}
+      state-file: ${{ steps.lazycat.outputs.state-file }}
+      review-status: ${{ steps.lazycat.outputs.review-status }}
+      store-results: ${{ steps.lazycat.outputs.store-results }}
       official-store-enabled: ${{ steps.lazycat.outputs.official-store-enabled }}
-      official-review-pending: ${{ steps.publish.outputs.official-review-pending || steps.lazycat.outputs.official-review-pending }}
-      official-review-version: ${{ steps.publish.outputs.official-review-version || steps.lazycat.outputs.official-review-version }}
+      official-review-pending: ${{ steps.lazycat.outputs.official-review-pending }}
+      official-review-version: ${{ steps.lazycat.outputs.official-review-version }}
       update-strategy: ${{ steps.lazycat.outputs.update-strategy }}
       channel: ${{ steps.lazycat.outputs.channel }}
-      result-file: ${{ steps.publish.outputs.result-file || steps.lazycat.outputs.result-file }}
+      result-file: ${{ steps.lazycat.outputs.result-file }}
       runner-arch: ${{ steps.lazycat.outputs.runner-arch }}
       target-platform: ${{ steps.lazycat.outputs.target-platform }}
+      packaged-commit: ${{ steps.handoff.outputs.commit }}
+      lpk-name: ${{ steps.handoff.outputs.lpk-name }}
     steps:
       - name: Checkout pipeline project
         uses: actions/checkout@v7
@@ -338,16 +348,10 @@ jobs:
           version: ${{ inputs.version }}
           changelog: ${{ inputs.changelog }}
           dry-run: ${{ inputs.dry-run }}
-
-      - name: Upload validated LPK
-        if: steps.lazycat.outputs.lpk-path != ''
-        uses: actions/upload-artifact@v7
-        with:
-          name: lpk-${{ steps.lazycat.outputs.package-id }}-${{ steps.lazycat.outputs.version }}
-          path: ${{ steps.lazycat.outputs.lpk-path }}
-          if-no-files-found: error
+          retry-rejected: ${{ inputs.retry-rejected }}
 
       - name: Create source update pull request
+        id: source-pr
         if: steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'pull' && !inputs.dry-run
         uses: peter-evans/create-pull-request@v8
         with:
@@ -369,7 +373,7 @@ jobs:
 
       - name: Commit packaged official update
         id: packaged-commit
-        if: steps.lazycat.outputs.changed == 'true' && steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.lpk-path != '' && !inputs.dry-run
+        if: (steps.lazycat.outputs.changed == 'true' || steps.lazycat.outputs.state-changed == 'true') && steps.lazycat.outputs.update-strategy == 'publish' && !inputs.dry-run
         shell: bash
         env:
           VERSION: ${{ steps.lazycat.outputs.version }}
@@ -388,9 +392,64 @@ jobs:
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
 
+      - name: Prepare immutable LPK handoff
+        id: handoff
+        if: steps.lazycat.outputs.lpk-path != '' && !inputs.dry-run
+        shell: bash
+        env:
+          LPK_PATH: ${{ steps.lazycat.outputs.lpk-path }}
+          PACKAGE_ID: ${{ steps.lazycat.outputs.package-id }}
+          VERSION: ${{ steps.lazycat.outputs.version }}
+          EXPECTED_SHA256: ${{ steps.lazycat.outputs.sha256 }}
+          PR_COMMIT: ${{ steps.source-pr.outputs.pull-request-head-sha }}
+        run: |
+          set -euo pipefail
+          [[ "${PACKAGE_ID}" =~ ^[a-zA-Z0-9._-]+$ ]]
+          [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][0-9A-Za-z.-]+)?$ ]]
+          [[ "$(sha256sum "${LPK_PATH}" | cut -d ' ' -f1)" == "${EXPECTED_SHA256}" ]]
+          directory="${RUNNER_TEMP}/lazycat-handoff"
+          mkdir -p "${directory}"
+          name="${PACKAGE_ID}-v${VERSION}.lpk"
+          cp -- "${LPK_PATH}" "${directory}/${name}"
+          echo "path=${directory}/${name}" >>"${GITHUB_OUTPUT}"
+          echo "lpk-name=${name}" >>"${GITHUB_OUTPUT}"
+          echo "commit=${PR_COMMIT:-$(git rev-parse HEAD)}" >>"${GITHUB_OUTPUT}"
+
+      - name: Upload validated LPK
+        if: steps.handoff.outputs.path != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: lpk-${{ steps.lazycat.outputs.package-id }}-${{ steps.lazycat.outputs.version }}
+          path: ${{ steps.handoff.outputs.path }}
+          if-no-files-found: error
+
+  submit-official:
+    name: Submit LazyCat official review
+    needs: lazycat
+    if: needs.lazycat.outputs.update-strategy == 'publish' && needs.lazycat.outputs.official-store-enabled == 'true' && needs.lazycat.outputs.lpk-name != '' && needs.lazycat.outputs.official-review-pending != 'true' && !inputs.dry-run
+    runs-on: ${{ inputs.runner }}
+    outputs:
+      state-file: ${{ steps.publish.outputs.state-file }}
+      review-status: ${{ steps.publish.outputs.review-status }}
+      store-results: ${{ steps.publish.outputs.store-results }}
+      official-review-pending: ${{ steps.publish.outputs.official-review-pending }}
+      official-review-version: ${{ steps.publish.outputs.official-review-version }}
+      result-file: ${{ steps.publish.outputs.result-file }}
+    steps:
+      - name: Checkout packaged adapter commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ needs.lazycat.outputs.packaged-commit }}
+          fetch-depth: 0
+
+      - name: Download validated LPK
+        uses: actions/download-artifact@v8
+        with:
+          name: lpk-${{ needs.lazycat.outputs.package-id }}-${{ needs.lazycat.outputs.version }}
+          path: .lazycat-artifact
+
       - name: Publish to LazyCat official store
         id: publish
-        if: steps.lazycat.outputs.update-strategy == 'publish' && steps.lazycat.outputs.official-store-enabled == 'true' && steps.lazycat.outputs.lpk-path != '' && steps.lazycat.outputs.official-review-pending != 'true' && !inputs.dry-run
         uses: wcaqrl/lazycat-action@v1
         env:
           LZC_API_HOST: ${{ secrets.LZC_API_HOST }}
@@ -400,21 +459,64 @@ jobs:
         with:
           operation: publish-official
           config: ${{ inputs.config }}
-          version: ${{ steps.lazycat.outputs.version }}
-          changelog: ${{ inputs.changelog || steps.lazycat.outputs.changelog || format('Release {0}', steps.lazycat.outputs.version) }}
-          lpk-path: ${{ steps.lazycat.outputs.lpk-path }}
-          sha256: ${{ steps.lazycat.outputs.sha256 }}
+          version: ${{ needs.lazycat.outputs.version }}
+          changelog: ${{ inputs.changelog || needs.lazycat.outputs.changelog || format('Release {0}', needs.lazycat.outputs.version) }}
+          lpk-path: .lazycat-artifact/${{ needs.lazycat.outputs.lpk-name }}
+          sha256: ${{ needs.lazycat.outputs.sha256 }}
 
       - name: Commit submitted state
         if: steps.publish.outcome == 'success' && steps.publish.outputs.state-file != '' && !inputs.dry-run
         shell: bash
         env:
           STATE_FILE: ${{ steps.publish.outputs.state-file }}
-          VERSION: ${{ steps.lazycat.outputs.version }}
+          VERSION: ${{ needs.lazycat.outputs.version }}
         run: |
           set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add -- "${STATE_FILE}"
           if ! git diff --cached --quiet; then
             git commit -m "chore: record LazyCat submission ${VERSION} [skip ci]"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
+
+  publish-github-release:
+    name: Publish downloadable LPK (non-blocking)
+    needs: lazycat
+    if: needs.lazycat.outputs.lpk-name != '' && !inputs.dry-run
+    runs-on: ${{ inputs.runner }}
+    continue-on-error: true
+    steps:
+      - name: Download validated LPK
+        uses: actions/download-artifact@v8
+        with:
+          name: lpk-${{ needs.lazycat.outputs.package-id }}-${{ needs.lazycat.outputs.version }}
+          path: .lazycat-artifact
+
+      - name: Checkout release publisher
+        uses: actions/checkout@v7
+        with:
+          repository: wcaqrl/lazycat-action
+          ref: v1
+          path: .lazycat-tool
+
+      - name: Create version tag and upload LPK only
+        id: release
+        uses: actions/github-script@v8
+        env:
+          LPK_PATH: .lazycat-artifact/${{ needs.lazycat.outputs.lpk-name }}
+          PACKAGE_ID: ${{ needs.lazycat.outputs.package-id }}
+          APPLICATION_VERSION: ${{ needs.lazycat.outputs.version }}
+          PACKAGED_COMMIT: ${{ needs.lazycat.outputs.packaged-commit }}
+          EXPECTED_SHA256: ${{ needs.lazycat.outputs.sha256 }}
+          RELEASE_CHANGELOG: ${{ inputs.changelog || needs.lazycat.outputs.changelog }}
+        with:
+          script: |
+            await require(`${process.env.GITHUB_WORKSPACE}/.lazycat-tool/scripts/publish-lpk-release.cjs`)({ github, context, core });
+
+      - name: Report optional release failure
+        if: failure()
+        shell: bash
+        run: |
+          echo '::warning::GitHub Release failed; the official store submission runs independently.'
+          echo 'GitHub Release failed. Check the release job and rerun it; LazyCat submission is independent.' >>"${GITHUB_STEP_SUMMARY}"

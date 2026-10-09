@@ -83,6 +83,7 @@ type Input struct {
 	WorkflowRustToolchain string
 	GuardOfficialReview   bool
 	DryRun                bool
+	RetryRejected         bool
 }
 
 type Result struct {
@@ -110,6 +111,8 @@ type Result struct {
 	RunnerArch            string          `json:"runnerArch"`
 	TargetPlatform        string          `json:"targetPlatform"`
 	Warnings              []lpkgo.Warning `json:"warnings,omitempty"`
+	ReviewStatus          string          `json:"reviewStatus,omitempty"`
+	StateChanged          bool            `json:"stateChanged,omitempty"`
 }
 
 type Error struct {
@@ -189,6 +192,7 @@ type Dependencies struct {
 	WriteState           func(string, pipelinestate.Lock) error
 	Fingerprint          func(context.Context, config.Config, source.Candidate) (string, error)
 	WaitingReviewVersion func(context.Context, string) (string, bool, error)
+	LookupReview         func(context.Context, official.ReviewLookup) (*official.Review, error)
 	Publish              func(context.Context, publishflow.Request) (publishflow.Result, error)
 }
 
@@ -251,6 +255,16 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 				return "", false, err
 			}
 			return client.WaitingReviewVersion(ctx, packageID)
+		},
+		LookupReview: func(ctx context.Context, lookup official.ReviewLookup) (*official.Review, error) {
+			resolved, err := resolver.Resolve(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if resolved.Protocol != platformauth.ProtocolPAT {
+				return nil, nil
+			}
+			return (official.Publisher{BaseURL: resolved.BaseURL, SDK: true}).FindReview(ctx, resolved.Provider, lookup)
 		},
 		Publish: publishFlow.Publish,
 	}, nil
@@ -363,6 +377,9 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to inspect LazyCat project", err)
 	}
+	if input.RetryRejected && (cfg.Version != 2 || operation != OperationCheck) {
+		return Result{}, actionError(CodeConfigInvalid, "retry-rejected requires a version 2 source check", nil)
+	}
 	logger := dependencies.Logger
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -466,6 +483,43 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	if input.Tag == "" && input.Version != "" {
 		input.Tag = "v" + input.Version
 	}
+	var lock pipelinestate.Lock
+	stateFile := filepath.Join(info.Root, cfg.State.File)
+	if cfg.Version == 2 && !input.DryRun {
+		if dependencies.ReadState == nil || dependencies.WriteState == nil {
+			return Result{}, actionError(CodeConfigInvalid, "source pipeline state dependencies are unavailable", nil)
+		}
+		var err error
+		lock, err = dependencies.ReadState(stateFile)
+		if err != nil {
+			return Result{}, actionError(CodeConfigInvalid, "unable to read packaged source pipeline state", err)
+		}
+		if lock.Fingerprint == "" || lock.Application.Version != input.Version || input.ExpectedSHA256 != "" && lock.Application.LPKSHA256 != input.ExpectedSHA256 {
+			return Result{}, actionError(CodeConfigInvalid, "publication does not match packaged source pipeline state", nil)
+		}
+		changed, err := reconcileReviews(ctx, &lock, info.PackageID, dependencies)
+		if err != nil {
+			return Result{}, mapWaitingReviewError(err)
+		}
+		if lock.Status == "submitted" {
+			if changed {
+				if err := dependencies.WriteState(stateFile, lock); err != nil {
+					return Result{}, actionError(CodeStorePublishFailed, "unable to save recovered review state", err)
+				}
+			}
+			result := baseResult(input, dependencies.Host, info, cfg)
+			result.Operation, result.StateFile, result.Fingerprint = string(operation), stateFile, lock.Fingerprint
+			result.ReviewStatus, result.StateChanged = currentReviewStatus(lock), changed
+			result.StoreResults = json.RawMessage(`{"official":{"skipped":true,"skipReason":"review-already-recorded"}}`)
+			if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
+				return Result{}, actionError(CodeStorePublishFailed, "unable to write recovered publication result", err)
+			}
+			return result, nil
+		}
+		if lock.Status != "packaged" {
+			return Result{}, actionError(CodeConfigInvalid, "official publication requires packaged source pipeline state", nil)
+		}
+	}
 	if input.Changelog == "" && cfg.Version == 2 && dependencies.ReadState != nil {
 		lock, stateErr := dependencies.ReadState(filepath.Join(info.Root, cfg.State.File))
 		if stateErr != nil {
@@ -505,23 +559,22 @@ func runPublish(ctx context.Context, input Input, operation Operation, cfg confi
 	result.TargetPlatform = published.Artifact.TargetPlatform
 	result.StoreResults = encodedStores
 	if cfg.Version == 2 && !input.DryRun {
-		if dependencies.ReadState == nil || dependencies.WriteState == nil {
-			return Result{}, actionError(CodeConfigInvalid, "source pipeline state dependencies are unavailable", nil)
-		}
-		stateFile := filepath.Join(info.Root, cfg.State.File)
-		lock, stateErr := dependencies.ReadState(stateFile)
-		if stateErr != nil {
-			return Result{}, actionError(CodeStorePublishFailed, "unable to read packaged source pipeline state", stateErr)
-		}
-		if lock.Fingerprint == "" || lock.Status != "packaged" {
-			return Result{}, actionError(CodeStorePublishFailed, "official publication requires packaged source pipeline state", nil)
-		}
 		lock.Status = "submitted"
 		lock.Application = pipelinestate.Application{PackageID: published.Artifact.PackageID, Version: published.Artifact.Version, LPKSHA256: published.Artifact.SHA256, Changelog: input.Changelog}
+		record := pipelinestate.Review{Source: lock.Source, Fingerprint: lock.Fingerprint, ApplicationVersion: published.Artifact.Version, LPKSHA256: published.Artifact.SHA256, Status: "submitted", SubmittedAt: time.Now().UTC()}
+		if published.Official != nil {
+			if published.Official.Review != nil {
+				applyReview(&record, *published.Official.Review)
+			} else if published.Official.Skipped {
+				record.Status = "approved"
+			}
+		}
+		lock.RecordReview(record)
 		if stateErr := dependencies.WriteState(stateFile, lock); stateErr != nil {
 			return Result{}, actionError(CodeStorePublishFailed, "unable to mark source pipeline state as submitted", stateErr)
 		}
 		result.StateFile = stateFile
+		result.StateChanged, result.ReviewStatus = true, record.Status
 		result.Fingerprint = lock.Fingerprint
 		encodedSource, encodeErr := json.Marshal(lock.Source)
 		if encodeErr != nil {
@@ -679,6 +732,23 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	if dependencies.DiscoverSource == nil || dependencies.PrepareSource == nil || dependencies.ReadState == nil || dependencies.WriteState == nil || dependencies.Fingerprint == nil {
 		return Result{}, actionError(CodeConfigInvalid, "source pipeline dependencies are unavailable", nil)
 	}
+	stateFile := filepath.Join(info.Root, cfg.State.File)
+	lock, err := dependencies.ReadState(stateFile)
+	if err != nil {
+		return Result{}, actionError(CodeConfigInvalid, "unable to read source pipeline state", err)
+	}
+	stateChanged := false
+	if !input.DryRun && cfg.Update.Strategy == config.StrategyPublish && cfg.Stores.Official.Enabled {
+		stateChanged, err = reconcileReviews(ctx, &lock, info.PackageID, dependencies)
+		if err != nil {
+			return Result{}, mapWaitingReviewError(err)
+		}
+		if stateChanged {
+			if err := dependencies.WriteState(stateFile, lock); err != nil {
+				return Result{}, actionError(CodeBuildFailed, "unable to write reconciled review state", err)
+			}
+		}
+	}
 	candidate, err := dependencies.DiscoverSource(ctx, source.Request{Source: cfg.Source, Target: cfg.Project.Target(), CurrentVersion: info.Version})
 	if err != nil {
 		return Result{}, actionError(CodeVersionNotFound, "unable to discover the configured source", err)
@@ -686,11 +756,6 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	fingerprint, err := dependencies.Fingerprint(ctx, cfg, candidate)
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to fingerprint source pipeline inputs", err)
-	}
-	stateFile := filepath.Join(info.Root, cfg.State.File)
-	lock, err := dependencies.ReadState(stateFile)
-	if err != nil {
-		return Result{}, actionError(CodeConfigInvalid, "unable to read source pipeline state", err)
 	}
 	if candidate.Kind == string(config.SourceKindGit) && candidate.Tag != "" && lock.Source.Tag == candidate.Tag &&
 		candidate.Revision != "" && lock.Source.Revision != "" && candidate.Revision != lock.Source.Revision {
@@ -701,7 +766,29 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 		terminalStatus = "packaged"
 	}
 	changed := lock.Fingerprint != fingerprint || lock.Status != terminalStatus
+	processed, rejected := processedSource(lock, candidate)
+	resumable := resumableSource(lock, candidate)
+	if processed && !resumable && cfg.Update.Strategy == config.StrategyPublish {
+		changed = false
+	}
+	if input.RetryRejected {
+		if !rejected {
+			return Result{}, actionError(CodeConfigInvalid, "retry-rejected requires a rejected review for the selected source", nil)
+		}
+		changed = true
+	}
 	version, err := sourceApplicationVersion(candidate.Version, info.Version, lock, fingerprint)
+	if processed && !resumable && !input.RetryRejected {
+		version = lock.Application.Version
+		for _, review := range lock.Reviews {
+			if pipelinestate.SameSource(review.Source, candidate) {
+				version = review.ApplicationVersion
+			}
+		}
+	}
+	if input.RetryRejected && err == nil && !(resumable && lock.Fingerprint == fingerprint) {
+		version, err = versioning.BumpPatch(info.Version)
+	}
 	if err != nil {
 		return Result{}, actionError(CodeVersionNotFound, "unable to derive the next application version", err)
 	}
@@ -718,7 +805,16 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 			if logger == nil {
 				logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 			}
-			return pausedOfficialReviewResult(input, OperationCheck, officialReviewVersion, info, cfg, dependencies, logger, "automatic source publication paused because the pending review covers the selected source version")
+			result, err := pausedOfficialReviewResult(input, OperationCheck, officialReviewVersion, info, cfg, dependencies, logger, "automatic source publication paused because the pending review covers the selected source version")
+			if err != nil {
+				return Result{}, err
+			}
+			result.StateFile, result.Fingerprint = stateFile, fingerprint
+			result.StateChanged, result.ReviewStatus = stateChanged, currentReviewStatus(lock)
+			if err := writeResult(&result, resultDirectory(dependencies.ResultDir, info.Root)); err != nil {
+				return Result{}, actionError(CodeBuildFailed, "unable to write reconciled paused result", err)
+			}
+			return result, nil
 		}
 	}
 	encodedSource, err := json.Marshal(candidate)
@@ -734,6 +830,7 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	result.Fingerprint = fingerprint
 	result.StateFile = stateFile
 	result.OfficialReviewVersion = officialReviewVersion
+	result.StateChanged, result.ReviewStatus = stateChanged, currentReviewStatus(lock)
 	if changed {
 		if input.Changelog != "" {
 			result.Changelog = input.Changelog
@@ -849,6 +946,7 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	lock = pipelinestate.Lock{
 		Source: candidate, Fingerprint: fingerprint, Status: "packaged", Images: stateImages,
 		Application: pipelinestate.Application{PackageID: built.PackageID, Version: built.Version, LPKSHA256: built.SHA256, Changelog: result.Changelog},
+		PackagedAt:  time.Now().UTC(), Reviews: lock.Reviews,
 	}
 	if err := dependencies.WriteState(stateFile, lock); err != nil {
 		rollbackVersion(dependencies, info.PackageFile, change)
@@ -860,6 +958,8 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	result.SHA256 = built.SHA256
 	result.TargetPlatform = built.TargetPlatform
 	result.Warnings = built.Warnings
+	result.StateChanged = true
+	result.ReviewStatus = ""
 	if err := writeResult(&result, resultDirectory(dependencies.ResultDir, updated.Root)); err != nil {
 		return Result{}, actionError(CodeBuildFailed, "unable to write source pipeline result", err)
 	}

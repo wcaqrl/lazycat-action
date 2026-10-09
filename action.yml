@@ -39,6 +39,10 @@ inputs:
     description: Calculate the plan without changing files or remote state.
     required: false
     default: "false"
+  retry-rejected:
+    description: Manually rebuild a rejected source with a new application patch version.
+    required: false
+    default: "false"
   docker-mirror:
     description: Optional Docker Hub mirror registry/path prefix.
     required: false
@@ -95,6 +99,12 @@ outputs:
   state-file:
     description: Version 2 pipeline state lock file.
     value: ${{ steps.run.outputs['state-file'] }}
+  state-changed:
+    description: Whether the pipeline lock was updated, including review reconciliation.
+    value: ${{ steps.run.outputs['state-changed'] }}
+  review-status:
+    description: Recorded review status for the current packaged application.
+    value: ${{ steps.run.outputs['review-status'] }}
   store-results:
     description: JSON object containing official store publication results.
     value: ${{ steps.run.outputs['store-results'] }}
@@ -130,7 +140,7 @@ runs:
       id: run
       shell: bash
       env:
-        LAZYCAT_ACTION_VERSION: v1.6.0
+        LAZYCAT_ACTION_VERSION: v1.7.0
         INPUT_OPERATION: ${{ inputs.operation }}
         INPUT_CONFIG: ${{ inputs.config }}
         INPUT_IMAGE_ID: ${{ inputs['image-id'] }}
@@ -139,6 +149,7 @@ runs:
         INPUT_LPK_PATH: ${{ inputs['lpk-path'] }}
         INPUT_SHA256: ${{ inputs.sha256 }}
         INPUT_DRY_RUN: ${{ inputs['dry-run'] }}
+        INPUT_RETRY_REJECTED: ${{ inputs['retry-rejected'] }}
         LAZYCAT_GUARD_OFFICIAL_REVIEW: ${{ env.LAZYCAT_GUARD_OFFICIAL_REVIEW }}
         LAZYCAT_DOCKER_MIRROR: ${{ inputs['docker-mirror'] || env.LAZYCAT_DOCKER_MIRROR }}
         LAZYCAT_GHCR_MIRROR: ${{ inputs['ghcr-mirror'] || env.LAZYCAT_GHCR_MIRROR }}

@@ -19,6 +19,9 @@ fi
 if [[ "${LAZYCAT_DRY_RUN:-false}" == "true" ]]; then
   args+=(--dry-run)
 fi
+if [[ "${LAZYCAT_RETRY_REJECTED:-false}" == "true" ]]; then
+  args+=(--retry-rejected)
+fi
 if [[ "${LAZYCAT_PUBLISH_AFTER_CHECK:-true}" == "true" ]]; then
   args+=(--publish-after-check)
 fi

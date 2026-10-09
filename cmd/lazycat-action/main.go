@@ -48,6 +48,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 		sha256 := flags.String("sha256", "", "expected LPK SHA256")
 		dryRun := flags.Bool("dry-run", false, "plan without mutating files or remote state")
 		publish := flags.Bool("publish-after-check", false, "submit a newly packaged update to the official store")
+		retryRejected := flags.Bool("retry-rejected", false, "manually rebuild a rejected source using a new application version")
 		if err := flags.Parse(args[1:]); err != nil {
 			return 2
 		}
@@ -59,6 +60,7 @@ func run(args []string, getenv func(string) string, stdout, stderr io.Writer) in
 			"INPUT_OPERATION": *operation, "INPUT_CONFIG": *configPath, "INPUT_IMAGE_ID": *imageID,
 			"INPUT_VERSION": *versionValue, "INPUT_CHANGELOG": *changelog, "INPUT_LPK_PATH": *lpkPath,
 			"INPUT_SHA256": *sha256, "INPUT_DRY_RUN": fmt.Sprintf("%t", *dryRun),
+			"INPUT_RETRY_REJECTED": fmt.Sprintf("%t", *retryRejected),
 		}
 		baseGetenv := getenv
 		publishAfterCheck = *publish

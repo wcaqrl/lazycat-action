@@ -66,15 +66,16 @@ type Request struct {
 }
 
 type Result struct {
-	Published     bool   `json:"published"`
-	Skipped       bool   `json:"skipped"`
-	Created       bool   `json:"created"`
-	PackageID     string `json:"packageId"`
-	Version       string `json:"version"`
-	OnlineVersion string `json:"onlineVersion,omitempty"`
-	SkipReason    string `json:"skipReason,omitempty"`
-	UploadURL     string `json:"uploadUrl"`
-	SHA256        string `json:"sha256"`
+	Published     bool    `json:"published"`
+	Skipped       bool    `json:"skipped"`
+	Created       bool    `json:"created"`
+	PackageID     string  `json:"packageId"`
+	Version       string  `json:"version"`
+	OnlineVersion string  `json:"onlineVersion,omitempty"`
+	SkipReason    string  `json:"skipReason,omitempty"`
+	UploadURL     string  `json:"uploadUrl"`
+	SHA256        string  `json:"sha256"`
+	Review        *Review `json:"review,omitempty"`
 }
 
 type Publisher struct {
@@ -354,12 +355,13 @@ func publishAttempt(
 	if stateAware && (sdkMode || !informationReady) {
 		infos = applicationInfos
 	}
-	if err := submitReview(ctx, httpClient, baseURL, token, upload, infos, changelogs); err != nil {
+	review, err := submitReview(ctx, httpClient, baseURL, token, upload, infos, changelogs)
+	if err != nil {
 		return Result{Created: created}, err
 	}
 	return Result{
 		Published: true, Created: created, PackageID: uploadPackage, Version: uploadVersion,
-		UploadURL: strings.TrimSpace(upload.URL), SHA256: uploadDigest,
+		UploadURL: strings.TrimSpace(upload.URL), SHA256: uploadDigest, Review: review,
 	}, nil
 }
 
@@ -572,7 +574,7 @@ func uploadLPK(ctx context.Context, client *http.Client, baseURL, token, filenam
 	return upload, nil
 }
 
-func submitReview(ctx context.Context, client *http.Client, baseURL, token string, upload appstore.UploadInfo, infos []appstore.ApplicationInfo, changelogs map[string]string) error {
+func submitReview(ctx context.Context, client *http.Client, baseURL, token string, upload appstore.UploadInfo, infos []appstore.ApplicationInfo, changelogs map[string]string) (*Review, error) {
 	body := struct {
 		SubmitChannel uint8                      `json:"submit_channel"`
 		Infos         []appstore.ApplicationInfo `json:"infos,omitempty"`
@@ -602,16 +604,27 @@ func submitReview(ctx context.Context, client *http.Client, baseURL, token strin
 	body.Version.Changelogs = changelogs
 	encoded, err := json.Marshal(body)
 	if err != nil {
-		return publishError(lpkgo.CodeInvalidArgument, errors.New("unable to encode official review request"))
+		return nil, publishError(lpkgo.CodeInvalidArgument, errors.New("unable to encode official review request"))
 	}
 	target := baseURL + "/api/v3/developer/app/" + url.PathEscape(strings.TrimSpace(upload.Package)) + "/review/create"
 	request, err := authenticatedRequest(ctx, http.MethodPost, target, token, strings.NewReader(string(encoded)))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	request.Header.Set("Content-Type", "application/json")
-	_, err = doRequest(client, request, "store.official.review")
-	return err
+	response, err := doRequest(client, request, "store.official.review")
+	if err != nil {
+		return nil, err
+	}
+	var result struct {
+		Review *Review `json:"review"`
+	}
+	// Old session endpoints can acknowledge success without returning a review.
+	// Preserve accepted submissions even if response metadata is unavailable.
+	if json.Unmarshal(response, &result) == nil && result.Review != nil && result.Review.ID > 0 {
+		return result.Review, nil
+	}
+	return nil, nil
 }
 
 func authenticatedRequest(ctx context.Context, method, target, token string, body io.Reader) (*http.Request, error) {

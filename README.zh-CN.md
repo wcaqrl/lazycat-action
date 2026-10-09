@@ -26,12 +26,24 @@
 当官方商店已有待审核版本时，Action 仍会检查上游：候选版本更高则继续构建和提交，由官方商店在接收新审核后自动取消旧审核；候选版本相同或更低时暂停。同一个已记录 Git Tag 如果被移动到另一个 commit，流程会直接报错，不会用相同版本号静默发布不同源码。
 | Git 分支 | 指定分支或远程默认分支 | 分支 HEAD commit SHA |
 
-最终指纹还包含 `build.prepare` 命令、Dockerfile、构建参数和构建上下文内容。上游不变但插件列表或 Dockerfile 改变时，仍会生成新版本。
+最终指纹还包含 `build.prepare` 命令、Dockerfile、构建参数和构建上下文内容。送审历史同时保留不可变的源标识，已经送审的源版本不会因配方调整被定时任务重复提交。
 
 状态保存在 `.lazycat-action.lock.yml`：
 
 - `packaged`：镜像和 LPK 已生成，可以重试官方提交。
 - `submitted`：该指纹已经成功提交或确认线上已有相同版本，再次检查为 no-op。
+
+锁文件格式升级为 `version: 2`，自动兼容原有格式。`packaged_at` 在送审之前提交到仓库；`reviews` 保存每次提交的源版本、revision、应用版本、LPK 摘要、审核 ID、创建时间、状态和拒绝原因。每次正式检查同步仍在等待的审核。已拒绝、通过、取消或删除的源版本都会跳过自动重复送审；新的源版本仍可替换旧待审核版本。
+
+审核列表通过 `created_at_start` 和 `created_at_end` 成对查询（上海时间），固定围绕审核创建时间，再在客户端匹配审核 ID。恢复“送审成功但状态锁推送失败”时，按已提交的 `packaged_at` 限定时间范围，匹配应用版本、提交渠道和 LPK 摘要。不会把上次轮询时间作为创建时间起点。旧锁没有时间戳时，仅在首次迁移按 `sort=-id` 分页寻找记录；找不到历史审核时记录为 `untracked`，继续阻止重复送审，避免每天遍历全部历史。
+
+### 下载 LPK 与手动修复审核拒绝
+
+可复用工作流打包完成后，`submit-official` 和 `publish-github-release` 并行运行。Release 在适配仓库创建 `v<应用版本>` Tag，指向打包提交，附件只有 `<包名>-v<应用版本>.lpk`。Release Job 失败显示警告，不阻止商店送审；已有 Tag 或附件内容冲突时不会覆盖。内部仍校验 SHA256，不发布 `.sha256` 文件。
+
+Adapter 的 `workflow_dispatch` 增加 `retry-rejected` 布尔输入并传给可复用工作流。默认关闭。修复适配配置后，手动关闭 `dry-run` 并打开 `retry-rejected`，Action 使用同一被拒绝的源 revision，将应用版本提升一个 patch 后重新送审。旧拒绝记录保留。这个参数不适用于未被拒绝的源版本。
+
+CLI 对应 `run --retry-rejected --publish-after-check`；Gitee 入口使用 `LAZYCAT_RETRY_REJECTED=true`。各 Adapter 继续引用 `@v1`，需要 `contents: write` 和仓库 Secret `LZC_API_TOKEN`。审核状态同步仅适用于配置 `version: 2` 的源流程。
 
 ### 自动抓取本次更新日志
 

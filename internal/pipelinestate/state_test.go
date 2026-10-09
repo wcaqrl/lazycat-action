@@ -29,6 +29,24 @@ func TestStateRoundTrip(t *testing.T) {
 	}
 }
 
+func TestLegacyStateMigratesWithoutLosingSourceOrVersion(t *testing.T) {
+	filename := filepath.Join(t.TempDir(), "lock.yml")
+	if err := os.WriteFile(filename, []byte("version: 1\nsource:\n  kind: git\n  ref: refs/tags/v1.4.2\n  revision: abc\nfingerprint: previous\nstatus: submitted\napplication:\n  package: dev.example.app\n  version: 1.4.2\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	lock, err := pipelinestate.Read(filename)
+	if err != nil || lock.Application.Version != "1.4.2" || lock.Source.Revision != "abc" {
+		t.Fatalf("lock=%#v err=%v", lock, err)
+	}
+	if err := pipelinestate.Write(filename, lock); err != nil {
+		t.Fatal(err)
+	}
+	lock, err = pipelinestate.Read(filename)
+	if err != nil || lock.Version != 2 {
+		t.Fatalf("lock=%#v err=%v", lock, err)
+	}
+}
+
 func TestFingerprintChangesWithRecipeContent(t *testing.T) {
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "image"), 0o755); err != nil {

@@ -11,13 +11,14 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/source"
 	"go.yaml.in/yaml/v3"
 )
 
-const Version = 1
+const Version = 2
 
 type Lock struct {
 	Version     int              `yaml:"version"`
@@ -26,6 +27,37 @@ type Lock struct {
 	Status      string           `yaml:"status"`
 	Images      []Image          `yaml:"images,omitempty"`
 	Application Application      `yaml:"application"`
+	PackagedAt  time.Time        `yaml:"packaged_at,omitempty"`
+	Reviews     []Review         `yaml:"reviews,omitempty"`
+}
+
+// Review keeps the source identity even after a later release replaces this lock.
+type Review struct {
+	ID                 int64            `yaml:"id,omitempty" json:"id"`
+	Source             source.Candidate `yaml:"source" json:"source"`
+	Fingerprint        string           `yaml:"fingerprint" json:"fingerprint"`
+	ApplicationVersion string           `yaml:"application_version" json:"applicationVersion"`
+	LPKSHA256          string           `yaml:"lpk_sha256,omitempty" json:"lpkSha256,omitempty"`
+	Status             string           `yaml:"status" json:"status"`
+	Reason             string           `yaml:"reason,omitempty" json:"reason,omitempty"`
+	CreatedAt          time.Time        `yaml:"created_at,omitempty" json:"createdAt,omitempty"`
+	SubmittedAt        time.Time        `yaml:"submitted_at,omitempty" json:"submittedAt,omitempty"`
+	CheckedAt          time.Time        `yaml:"checked_at,omitempty" json:"checkedAt,omitempty"`
+}
+
+func SameSource(left, right source.Candidate) bool {
+	return left.Kind == right.Kind && left.Ref == right.Ref && left.Revision == right.Revision && left.Revision != ""
+}
+
+func (lock *Lock) RecordReview(review Review) {
+	for i := range lock.Reviews {
+		old := lock.Reviews[i]
+		if review.ID != 0 && old.ID == review.ID || old.ApplicationVersion == review.ApplicationVersion && old.Fingerprint == review.Fingerprint {
+			lock.Reviews[i] = review
+			return
+		}
+	}
+	lock.Reviews = append(lock.Reviews, review)
 }
 
 type Image struct {
@@ -61,7 +93,7 @@ func Read(filename string) (Lock, error) {
 	if err := yaml.Unmarshal(data, &lock); err != nil {
 		return Lock{}, fmt.Errorf("decode pipeline state: %w", err)
 	}
-	if lock.Version != Version {
+	if lock.Version != 1 && lock.Version != Version {
 		return Lock{}, fmt.Errorf("unsupported pipeline state version %d", lock.Version)
 	}
 	return lock, nil

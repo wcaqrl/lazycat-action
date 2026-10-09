@@ -50,6 +50,13 @@ func ReadInput(getenv func(string) string) (action.Input, error) {
 		input.DryRun = parsed
 	}
 	guardOfficialReview := strings.TrimSpace(getenv("LAZYCAT_GUARD_OFFICIAL_REVIEW"))
+	if retry := strings.TrimSpace(getenv("INPUT_RETRY_REJECTED")); retry != "" {
+		parsed, err := strconv.ParseBool(retry)
+		if err != nil {
+			return action.Input{}, fmt.Errorf("invalid retry-rejected value %q", retry)
+		}
+		input.RetryRejected = parsed
+	}
 	if guardOfficialReview != "" {
 		parsed, err := strconv.ParseBool(guardOfficialReview)
 		if err != nil {
@@ -152,6 +159,8 @@ func WriteOutputs(writer io.Writer, result action.Result) error {
 		{key: "changelog", value: result.Changelog},
 		{key: "fingerprint", value: result.Fingerprint},
 		{key: "state-file", value: result.StateFile},
+		{key: "state-changed", value: strconv.FormatBool(result.StateChanged)},
+		{key: "review-status", value: result.ReviewStatus},
 		{key: "store-results", value: storeResults},
 		{key: "official-store-enabled", value: strconv.FormatBool(result.OfficialStoreEnabled)},
 		{key: "official-review-pending", value: strconv.FormatBool(result.OfficialReviewPending)},
@@ -188,6 +197,10 @@ func WriteStepSummary(writer io.Writer, result action.Result) error {
 		return errors.New("step summary writer is required")
 	}
 	_, err := fmt.Fprintf(writer, "## LazyCat Action\n\n- Action host: `linux/%s`\n- LazyCat target: `%s`\n- Package: `%s`\n- Version: `%s`\n- Channel: `%s`\n- Update strategy: `%s`\n- Changed: `%t`\n- Official review pending: `%t`\n- Official review version: `%s`\n- LPK: `%s`\n", result.RunnerArch, result.TargetPlatform, result.PackageID, result.Version, result.Channel, result.UpdateStrategy, result.Changed, result.OfficialReviewPending, result.OfficialReviewVersion, result.LPKPath)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(writer, "- Recorded review status: `%s`\n", result.ReviewStatus)
 	return err
 }
 

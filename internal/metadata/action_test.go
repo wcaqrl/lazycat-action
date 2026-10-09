@@ -77,3 +77,22 @@ func TestGiteeRunnerUsesPlatformNeutralCLI(t *testing.T) {
 		t.Fatalf("Gitee runner must be executable: info=%v err=%v", info, err)
 	}
 }
+
+func TestReleaseCannotGateOfficialSubmission(t *testing.T) {
+	data, err := os.ReadFile("../../.github/workflows/lazycat.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Needs           string `yaml:"needs"`
+			ContinueOnError bool   `yaml:"continue-on-error"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(data, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	if workflow.Jobs["submit-official"].Needs != "lazycat" || workflow.Jobs["publish-github-release"].Needs != "lazycat" || !workflow.Jobs["publish-github-release"].ContinueOnError || workflow.Jobs["submit-official"].ContinueOnError {
+		t.Fatal("release must be parallel and non-blocking while official submission remains required")
+	}
+}

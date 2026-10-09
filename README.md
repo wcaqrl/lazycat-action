@@ -19,6 +19,16 @@ For a concrete three-repository setup, see [poster-adapter](https://github.com/w
 - Branch sources compare the branch HEAD commit. `branch: auto` resolves the remote symbolic `HEAD` instead of assuming `main` or `master`.
 - The final fingerprint also includes the preparation command, Dockerfile, build arguments, and build-context contents.
 
+## Reviews and downloadable LPK releases
+
+After packaging, the reusable workflow runs official review submission and GitHub Release publication as independent parallel jobs. The adapter's `v<application-version>` tag targets the packaging commit. Its Release contains only `<package>-v<application-version>.lpk`; SHA256 is checked internally. A release failure is a warning and cannot prevent store submission. Existing conflicting tags or assets are never overwritten.
+
+Version 2 source pipelines migrate legacy state locks automatically. The lock keeps `packaged_at` and a `reviews` history with source revisions, fingerprints, application versions, LPK hashes, review IDs, statuses, creation times and rejection reasons. Previously submitted sources are not submitted again automatically, including rejected, approved, canceled or deleted reviews. A new source release can still replace an older pending review.
+
+Review synchronization queries the official SDK list with paired `created_at_start` / `created_at_end` values in Asia/Shanghai and matches the saved review ID client-side. The fixed window follows the review's original creation time, not its last polling time. If submission succeeds but pushing its state fails, the next run recovers it from the persisted packaging time, version, automation channel and LPK hash. Locks without timestamps perform a one-time newest-first paginated lookup during migration; missing historical records become `untracked` and still block duplicate submissions. Terminal reviews are retained and no longer polled.
+
+Adapters expose a `workflow_dispatch` boolean `retry-rejected`, default false, and pass it to the reusable workflow. After fixing the adapter, explicitly enable it and disable `dry-run` to rebuild the rejected source with a new application patch version. Old review history remains. The CLI flag is `--retry-rejected`; Gitee uses `LAZYCAT_RETRY_REJECTED=true`. Keep the `@v1` reference, `contents: write`, and the adapter's `LZC_API_TOKEN` secret.
+
 ## Minimal version 2 recipe
 
 ```yaml
