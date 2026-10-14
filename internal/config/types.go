@@ -151,7 +151,7 @@ type OfficialStore struct {
 	SkipIfVersionExists    bool                `yaml:"skip_if_version_exists"`
 	ContinueIfNewerVersion *bool               `yaml:"continue_if_newer_version"`
 	CreateIfMissing        bool                `yaml:"create_if_missing"`
-	Locales                []string            `yaml:"changelog_locales"`
+	Locales                []string            `yaml:"changelog_locales"` // Legacy hint when changelog language is ambiguous.
 	Application            OfficialApplication `yaml:"application"`
 	Retry                  OfficialRetry       `yaml:"retry"`
 }

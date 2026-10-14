@@ -523,9 +523,6 @@ func validatePrepare(value Config) error {
 }
 
 func normalizeLocales(locales []string) []string {
-	if len(locales) == 0 {
-		return []string{"zh", "en"}
-	}
 	seen := make(map[string]struct{}, len(locales))
 	normalized := make([]string, 0, len(locales))
 	for _, locale := range locales {
@@ -538,9 +535,6 @@ func normalizeLocales(locales []string) []string {
 		}
 		seen[locale] = struct{}{}
 		normalized = append(normalized, locale)
-	}
-	if len(normalized) == 0 {
-		return []string{"zh", "en"}
 	}
 	return normalized
 }

@@ -94,7 +94,11 @@ changelog:
 
 On an update, the pipeline compares the Git tag for the adapter's current application version with the selected image release tag and uses their commit subjects as review notes. Both `1.2.3` and `v1.2.3` Git tags are recognized; the tags must refer to the release corresponding to the image. A Git branch or tag source can use the same configuration with `git_url` set to its source URL. For a private repository, set `changelog.auth_ref: source` and provide the existing `SOURCE_SSH_KEY`/`SOURCE_KNOWN_HOSTS` or `SOURCE_TOKEN` secrets. If the current version has no matching Git tag, only the target release commit is described. If the target tag is missing, the check fails before copying images or submitting a misleading changelog.
 
-The generated notes appear in dry-run results, GitHub Action outputs, and the saved pipeline lock so retries use the same text. The workflow passes them to the official store for every configured `changelog_locales`; it does not translate them. An explicit workflow `changelog` input or CLI `--changelog` overrides automatic generation. Without `changelog.git_url`, the previous generic release text remains the fallback.
+The generated notes appear in dry-run results, GitHub Action outputs, and the saved pipeline lock so retries use the same text. An explicit workflow `changelog` input or CLI `--changelog` overrides automatic generation. Without `changelog.git_url`, the previous generic release text remains the fallback.
+
+Official submission detects the original changelog's language locally and sends it under **one** key: `version.changelogs.zh` for Chinese or `version.changelogs.en` for English. A lightweight zh/en heuristic uses the dominant prose in mixed notes, excluding generated `Upstream` headers, links, code, and technical identifiers. The original text is not translated or rewritten; the app-store server handles missing translations. No translation API or TokenHub key is needed in the Action.
+
+`changelog_locales` is optional legacy configuration, not a list of translation targets. Existing `[zh, en]` recipes still load but no longer duplicate the same text into both languages. When prose cannot be classified (for example, numbers or symbols only), a single `[zh]` or `[en]` value can supply a hint; otherwise submission reports an error before uploading the LPK. Other languages are not automatically identified. Historical reviews are not rewritten.
 
 ## CLI
 

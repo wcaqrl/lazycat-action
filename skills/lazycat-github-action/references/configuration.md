@@ -17,4 +17,6 @@
 
 `delivery.copy_source` points at an anonymous proxy and accepts the same placeholders. The target-platform digest must exactly match the original source. It is mutually exclusive with `staging_image`.
 
-Only `stores.official` is valid. Use `create_if_missing`, `skip_if_version_exists`, localized changelogs, screenshots, and retry policy as required by the official developer platform.
+Only `stores.official` is valid. Use `create_if_missing`, `skip_if_version_exists`, screenshots, and retry policy as required by the official developer platform. Changelog submission locally detects Chinese or English and sends the unchanged original under one language key; the store handles missing translations. Mixed text uses dominant prose, ignoring generated headers, links, code, and technical identifiers. No translation credentials are needed.
+
+Omit the legacy `changelog_locales` setting in new recipes. Existing lists still load, but are not translation targets and never duplicate an original into both `zh` and `en`. For otherwise unclassifiable notes, a single `[zh]` or `[en]` can provide a language hint; without one, submission fails before uploading. Other languages are not automatically detected, and historical reviews remain unchanged.

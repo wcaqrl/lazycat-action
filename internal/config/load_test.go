@@ -48,7 +48,7 @@ update:
 				if !got.Stores.Official.ShouldContinueIfNewerVersion() {
 					t.Fatal("newer image versions should continue by default during official review")
 				}
-				if strings.Join(got.Stores.Official.Locales, ",") != "zh,en" {
+				if len(got.Stores.Official.Locales) != 0 {
 					t.Fatalf("official locales=%v", got.Stores.Official.Locales)
 				}
 				retry := got.Stores.Official.Retry
@@ -71,6 +71,23 @@ stores:
 			check: func(t *testing.T, got config.Config) {
 				if got.Stores.Official.ShouldContinueIfNewerVersion() {
 					t.Fatal("newer-version continuation should be disabled")
+				}
+			},
+		},
+		{
+			name: "blank legacy changelog locales do not default to both languages",
+			yaml: `version: 1
+project: {}
+update:
+  version_source:
+    type: git
+stores:
+  official:
+    changelog_locales: ["", " "]
+`,
+			check: func(t *testing.T, got config.Config) {
+				if len(got.Stores.Official.Locales) != 0 {
+					t.Fatalf("official locales=%v", got.Stores.Official.Locales)
 				}
 			},
 		},

@@ -30,6 +30,30 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/store/official"
 )
 
+func TestPublisherRejectsUnclassifiedChangelogBeforeReadingLPKOrCallingStore(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		requests++
+		http.Error(response, "must not call the store", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	for _, locales := range [][]string{nil, {"zh", "en"}, {"fr"}} {
+		_, err := (official.Publisher{BaseURL: server.URL, HTTPClient: server.Client()}).Publish(t.Context(), official.Request{
+			Provider: auth.StaticToken("ci-token"), LPKPath: filepath.Join(t.TempDir(), "absent.lpk"),
+			PackageID: "cloud.lazycat.apps.publish-demo", Version: "1.0.0", SHA256: strings.Repeat("a", 64),
+			Changelog: "123", Locales: locales,
+		})
+		var toolkitError *lpkgo.Error
+		var publicDetail interface{ PublicErrorDetail() string }
+		if !errors.As(err, &toolkitError) || toolkitError.Code != lpkgo.CodeInvalidArgument || !errors.As(err, &publicDetail) || !strings.Contains(publicDetail.PublicErrorDetail(), "unable to determine changelog language") {
+			t.Fatalf("locales=%v error=%v", locales, err)
+		}
+	}
+	if requests != 0 {
+		t.Fatalf("store requests=%d", requests)
+	}
+}
+
 func TestPublisherRetryDefaultsOffAfterOneCompleteAttempt(t *testing.T) {
 	path, digest := publishLPK(t)
 	checks := 0
@@ -334,6 +358,17 @@ func TestPublisherRetryRepeatsCompleteAttemptAfterTransientUploadFailure(t *test
 			_, _ = fmt.Fprintf(response, `{"package":"cloud.lazycat.apps.publish-demo","version":"1.0.0","iconPath":"/icon.png","url":"/demo.lpk","sha256":"%s","unsupportedPlatforms":[],"minOsVersion":"1.3.0","lpkSize":123,"imageSize":0}`, digest)
 		case "/api/v3/developer/app/cloud.lazycat.apps.publish-demo/review/create":
 			reviews++
+			var body struct {
+				Version struct {
+					Changelogs map[string]string `json:"changelogs"`
+				} `json:"version"`
+			}
+			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			if len(body.Version.Changelogs) != 1 || body.Version.Changelogs["en"] != "Release notes" {
+				t.Errorf("retry changed the original changelog: %#v", body.Version.Changelogs)
+			}
 			_, _ = response.Write([]byte(`{"success":true}`))
 		default:
 			http.NotFound(response, request)
@@ -350,7 +385,7 @@ func TestPublisherRetryRepeatsCompleteAttemptAfterTransientUploadFailure(t *test
 	}
 	result, err := publisher.Publish(context.Background(), official.Request{
 		Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
-		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+		Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"zh", "en"},
 		Retry: config.OfficialRetry{Enabled: true, MaxAttempts: 2, InitialDelay: time.Second, MaxDelay: 10 * time.Second},
 	})
 	if err != nil || !result.Published || checks != 2 || uploads != 2 || reviews != 1 {
@@ -1282,7 +1317,7 @@ func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
 			if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			if body.Version.Changelogs["zh"] != "Release notes" || body.Version.Changelogs["en"] != "Release notes" {
+			if len(body.Version.Changelogs) != 1 || body.Version.Changelogs["en"] != "Release notes" {
 				t.Errorf("changelogs=%#v", body.Version.Changelogs)
 			}
 			_, _ = response.Write([]byte(`{"success":true}`))
@@ -1308,12 +1343,13 @@ func TestPublisherUsesToolkitProtocolAndReturnsVerifiedResult(t *testing.T) {
 
 func TestPublisherSubmitsAutomationChannelForBothProtocols(t *testing.T) {
 	for _, test := range []struct {
-		name   string
-		sdk    bool
-		prefix string
+		name, prefix, changelog, language string
+		sdk                               bool
 	}{
-		{name: "legacy session", prefix: "/api/v3/developer"},
-		{name: "SDK PAT", sdk: true, prefix: "/sdk/v3/developer"},
+		{name: "legacy English", prefix: "/api/v3/developer", changelog: "Release notes", language: "en"},
+		{name: "SDK English", sdk: true, prefix: "/sdk/v3/developer", changelog: "Release notes", language: "en"},
+		{name: "legacy Chinese", prefix: "/api/v3/developer", changelog: "Upstream 1.0.0\n修复", language: "zh"},
+		{name: "SDK Chinese", sdk: true, prefix: "/sdk/v3/developer", changelog: "Upstream 1.0.0\n修复", language: "zh"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			path, digest := publishLPK(t)
@@ -1346,6 +1382,13 @@ func TestPublisherSubmitsAutomationChannelForBothProtocols(t *testing.T) {
 					if _, nested := body.Version["submit_channel"]; nested {
 						t.Error("submit_channel must describe the review, not the version")
 					}
+					var changelogs map[string]string
+					if err := json.Unmarshal(body.Version["changelogs"], &changelogs); err != nil {
+						t.Error(err)
+					}
+					if len(changelogs) != 1 || changelogs[test.language] != test.changelog {
+						t.Errorf("changelogs=%#v, expected only %s=%q", changelogs, test.language, test.changelog)
+					}
 					payload = `{"success":true}`
 				default:
 					http.NotFound(response, request)
@@ -1367,7 +1410,7 @@ func TestPublisherSubmitsAutomationChannelForBothProtocols(t *testing.T) {
 
 			result, err := (official.Publisher{BaseURL: server.URL, SDK: test.sdk, HTTPClient: server.Client()}).Publish(t.Context(), official.Request{
 				Provider: auth.StaticToken("ci-token"), LPKPath: path, PackageID: "cloud.lazycat.apps.publish-demo",
-				Version: "1.0.0", SHA256: digest, Changelog: "Release notes", Locales: []string{"en"},
+				Version: "1.0.0", SHA256: digest, Changelog: test.changelog, Locales: []string{"zh", "en"},
 			})
 			if err != nil || !reviewed || !result.Published {
 				t.Fatalf("err=%v reviewed=%t result=%#v", err, reviewed, result)

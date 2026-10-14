@@ -34,4 +34,3 @@ stores:
     enabled: true
     create_if_missing: false
     skip_if_version_exists: true
-    changelog_locales: [zh, en]

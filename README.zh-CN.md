@@ -67,7 +67,11 @@ changelog:
 
 此模式要求选中的稳定标签已经发布对应 GitHub Release。Release 不存在、仍是草稿或预发布时，流程会在镜像转存之前停止。
 
-只读 `dry-run` 的结果会显示 `changelog`，正式运行会把它写入锁文件供失败后重试，并发送到配置的 `changelog_locales`。目前各语言使用相同的上游原文，不做自动翻译。工作流的 `changelog` 输入或 CLI 的 `--changelog` 可人工覆盖；没有配置 `changelog.git_url` 的适配项目仍使用旧的通用版本说明。
+只读 `dry-run` 的结果会显示 `changelog`，正式运行会把它写入锁文件供失败后重试。工作流的 `changelog` 输入或 CLI 的 `--changelog` 可人工覆盖；没有配置 `changelog.git_url` 的适配项目仍使用旧的通用版本说明。
+
+正式送审时在本地判断更新日志的原文语种，只提交一个字段：中文填写 `version.changelogs.zh`，英文填写 `version.changelogs.en`。这是中英文轻量判断，混合文本按主体语种归类，排除固定 `Upstream` 标题、链接、代码和技术标识的干扰。原文不会被翻译或改写，缺少语种由应用商店服务端补翻；Action 不调用翻译接口，也不需要 TokenHub 密钥。
+
+`changelog_locales` 是可选的历史兼容配置，不再表示要填写的目标语种列表。旧的 `[zh, en]` 配置仍能读取，但不会把同一原文复制成双语。只有文本无法判断语种时（例如纯数字、符号），单一 `[zh]` 或 `[en]` 可作为提示；否则在上传 LPK 之前明确报错。暂不自动识别其它语种，也不改写历史审核日志。
 
 ## Version 2 配置
 
@@ -110,7 +114,6 @@ stores:
     enabled: true
     skip_if_version_exists: true
     create_if_missing: false
-    changelog_locales: [zh, en]
 ```
 
 `branch: auto` 通过 `git ls-remote --symref <url> HEAD` 读取真实默认分支，不假设 GitHub 一定使用 `main`，也不假设 Gitee 一定使用 `master`。分支 commit 变化时，应用版本自动增加 patch。

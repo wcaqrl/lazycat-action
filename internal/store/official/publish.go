@@ -55,7 +55,7 @@ type Request struct {
 	Version                string
 	SHA256                 string
 	Changelog              string
-	Locales                []string
+	Locales                []string // Legacy language hints, not translation targets.
 	CreateIfMissing        bool
 	Application            config.OfficialApplication
 	DefaultName            string
@@ -97,16 +97,9 @@ func (publisher Publisher) Publish(ctx context.Context, request Request) (Result
 	if packageID == "" || version == "" || strings.TrimSpace(request.LPKPath) == "" || changelog == "" || !sha256Pattern.MatchString(digest) {
 		return Result{}, publishError(lpkgo.CodeInvalidArgument, errors.New("LPK path, package, version, SHA256, and changelog are required"))
 	}
-	changelogs := make(map[string]string, len(request.Locales))
-	for _, locale := range request.Locales {
-		locale = strings.ToLower(strings.TrimSpace(locale))
-		if locale == "" {
-			continue
-		}
-		changelogs[locale] = changelog
-	}
-	if len(changelogs) == 0 {
-		return Result{}, publishError(lpkgo.CodeInvalidArgument, errors.New("at least one changelog locale is required"))
+	changelogs, err := localizedChangelog(changelog, request.Locales)
+	if err != nil {
+		return Result{}, publishError(lpkgo.CodeInvalidArgument, err)
 	}
 	var application *appstore.CreateApplicationRequest
 	if request.CreateIfMissing {
