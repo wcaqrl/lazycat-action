@@ -32,6 +32,9 @@ type Candidate struct {
 	Branch   string `json:"branch,omitempty" yaml:"branch,omitempty"`
 	Tag      string `json:"tag,omitempty" yaml:"tag,omitempty"`
 	Image    string `json:"image,omitempty" yaml:"image,omitempty"`
+	// ApplicationVersion is only a SemVer base; Version retains the vendor's
+	// complete numeric release identity for comparison, state, and changelogs.
+	ApplicationVersion string `json:"applicationVersion,omitempty" yaml:"application_version,omitempty"`
 }
 
 type Request struct {
@@ -75,12 +78,20 @@ func (discoverer Discoverer) discoverOCI(ctx context.Context, request Request) (
 	if err != nil {
 		return Candidate{}, fmt.Errorf("compile source exclude_regex: %w", err)
 	}
+	versionRegex, err := compileOptional(request.Source.Select.VersionRegex)
+	if err != nil {
+		return Candidate{}, fmt.Errorf("compile source version_regex: %w", err)
+	}
 	rule := versioning.Rule{
 		Channel:         versioning.ChannelStable,
 		Sort:            versioning.SortSemVer,
 		TagRegex:        include,
 		ExcludeRegex:    exclude,
-		VersionTemplate: "{version}",
+		VersionRegex:    versionRegex,
+		VersionTemplate: request.Source.Select.VersionTemplate,
+	}
+	if rule.VersionTemplate == "" {
+		rule.VersionTemplate = "{version}"
 	}
 	channel := strings.ToLower(strings.TrimSpace(request.Source.Select.Channel))
 	if channel != "" {
@@ -91,8 +102,10 @@ func (discoverer Discoverer) discoverOCI(ctx context.Context, request Request) (
 		rule.Sort = versioning.Sort(sortMode)
 	}
 	filter := registry.TagFilter{Include: include, Exclude: exclude}
-	if rule.Sort == versioning.SortSemVer {
+	if rule.Sort == versioning.SortSemVer || rule.Sort == versioning.SortNumeric {
 		filter.SemVerRule = &rule
+	} else if rule.Sort == versioning.SortUpdated {
+		filter.UpdatedRule = &rule
 	}
 	candidates, err := discoverer.Registry.CandidatesForTarget(ctx, request.Source.Image, request.Target, filter)
 	if err != nil {
@@ -102,12 +115,16 @@ func (discoverer Discoverer) discoverOCI(ctx context.Context, request Request) (
 	if err != nil {
 		return Candidate{}, fmt.Errorf("select OCI source: %w", err)
 	}
-	return Candidate{
+	candidate := Candidate{
 		Kind: string(config.SourceKindOCI), Version: selected.Version,
 		Ref:      request.Source.Image + ":" + selected.Candidate.Tag,
 		Revision: selected.Candidate.Digest, Tag: selected.Candidate.Tag,
 		Image: request.Source.Image,
-	}, nil
+	}
+	if selected.SourceVersion != "" {
+		candidate.Version, candidate.ApplicationVersion = selected.SourceVersion, selected.Version
+	}
+	return candidate, nil
 }
 
 type GitRunner struct {

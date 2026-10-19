@@ -10,15 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wcaqrl/lazycat-action/internal/platform"
-	internalregistry "github.com/wcaqrl/lazycat-action/internal/registry"
-	"github.com/wcaqrl/lazycat-action/internal/versioning"
 	"github.com/google/go-containerregistry/pkg/name"
 	registryserver "github.com/google/go-containerregistry/pkg/registry"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/empty"
 	"github.com/google/go-containerregistry/pkg/v1/mutate"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/wcaqrl/lazycat-action/internal/platform"
+	internalregistry "github.com/wcaqrl/lazycat-action/internal/registry"
+	"github.com/wcaqrl/lazycat-action/internal/versioning"
 )
 
 func TestClientSelectsLinuxAMD64FromMultiPlatformIndex(t *testing.T) {
@@ -185,6 +185,22 @@ func TestCandidatesInspectsSemVerTagsInRankOrderUntilPlatformMatches(t *testing.
 	}
 	if len(candidates) != 1 || candidates[0].Tag != "v2.0.0" {
 		t.Fatalf("candidates=%#v", candidates)
+	}
+}
+
+func TestCandidatesRankFourPartNumericTagsBeforeInspecting(t *testing.T) {
+	server := httptest.NewServer(registryserver.New())
+	defer server.Close()
+	repository := testRepository(t, server.URL, "acme/numeric")
+	writeImage(t, repository.Tag("1.43.3.9-aaaaaa"), imageAt(t, "amd64", atDay(3)), server)
+	writeImage(t, repository.Tag("1.43.3.10-bbbbbb"), imageAt(t, "amd64", atDay(1)), server)
+	writeImage(t, repository.Tag("1.43.3.11-cccccc"), imageAt(t, "arm64", atDay(2)), server)
+	pattern := regexp.MustCompile(`^(?P<version>(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)\.[0-9]+)-[a-f0-9]+$`)
+	rule := versioning.Rule{Channel: versioning.ChannelStable, Sort: versioning.SortNumeric, TagRegex: pattern, VersionRegex: pattern, VersionTemplate: "{major}.{minor}.{patch}"}
+	client := internalregistry.New(remote.WithTransport(server.Client().Transport))
+	candidates, err := client.Candidates(t.Context(), repository.Name(), internalregistry.TagFilter{Include: pattern, SemVerRule: &rule})
+	if err != nil || len(candidates) != 1 || candidates[0].Tag != "1.43.3.10-bbbbbb" || candidates[0].Digest == "" {
+		t.Fatalf("candidates=%#v err=%v", candidates, err)
 	}
 }
 

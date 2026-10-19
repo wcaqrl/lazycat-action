@@ -31,6 +31,7 @@ const (
 	SortSemVer  Sort = "semver"
 	SortCreated Sort = "created"
 	SortUpdated Sort = "updated"
+	SortNumeric Sort = "numeric"
 )
 
 type Rule struct {
@@ -52,12 +53,16 @@ type Candidate struct {
 type Selection struct {
 	Candidate Candidate
 	Version   string
+	// SourceVersion preserves all vendor numeric components; Version is the LPK
+	// SemVer mapping. Build metadata alone cannot order Plex's fourth component.
+	SourceVersion string
 }
 
 type ranked struct {
 	candidate Candidate
 	version   string
 	semver    *semver.Version
+	numeric   string
 }
 
 func Select(rule Rule, candidates []Candidate) (Selection, error) {
@@ -130,15 +135,15 @@ func BumpPatch(value string) (string, error) {
 	return fmt.Sprintf("%d.%d.%d", parsed.Major(), parsed.Minor(), parsed.Patch()+1), nil
 }
 
-// RankSemVer maps and orders tag-only candidates without requiring image
-// manifests. Callers can inspect the ranked tags until a usable platform is
-// found instead of fetching metadata for every matching release.
+// RankSemVer maps and orders SemVer or explicitly numeric tag-only candidates
+// without requiring image manifests. The historical function name is retained
+// for callers; both rules inspect ranked tags until a usable platform is found.
 func RankSemVer(rule Rule, candidates []Candidate) ([]Selection, error) {
 	if err := validateRule(rule); err != nil {
 		return nil, err
 	}
-	if rule.Sort != SortSemVer || rule.Channel == ChannelNightly {
-		return nil, errors.New("SemVer ranking requires a stable, beta, date, or custom semver rule")
+	if (rule.Sort != SortSemVer && rule.Sort != SortNumeric) || rule.Channel == ChannelNightly {
+		return nil, errors.New("tag ranking requires a semver or numeric version rule")
 	}
 	filtered := make([]Candidate, 0, len(candidates))
 	for _, candidate := range candidates {
@@ -209,12 +214,26 @@ func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) 
 				continue
 			}
 		}
-		rankedCandidates = append(rankedCandidates, ranked{candidate: candidate, version: mapped, semver: parsed})
+		numeric := ""
+		if rule.Sort == SortNumeric {
+			matches := rule.VersionRegex.FindStringSubmatch(candidate.Tag)
+			numeric = matches[rule.VersionRegex.SubexpIndex("version")]
+			if _, err := CompareNumericVersions(numeric, numeric); err != nil {
+				return nil, fmt.Errorf("numeric version from tag %q: %w", candidate.Tag, err)
+			}
+		}
+		rankedCandidates = append(rankedCandidates, ranked{candidate: candidate, version: mapped, semver: parsed, numeric: numeric})
 	}
 	if len(rankedCandidates) == 0 {
 		return nil, errors.New("no valid image version matches the configured channel")
 	}
 	sort.SliceStable(rankedCandidates, func(i, j int) bool {
+		if rule.Sort == SortNumeric {
+			comparison, _ := CompareNumericVersions(rankedCandidates[i].numeric, rankedCandidates[j].numeric)
+			if comparison != 0 {
+				return comparison > 0
+			}
+		}
 		if rule.Sort == SortCreated {
 			if rankedCandidates[i].candidate.Created.Equal(rankedCandidates[j].candidate.Created) {
 				return rankedCandidates[i].candidate.Tag > rankedCandidates[j].candidate.Tag
@@ -232,7 +251,7 @@ func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) 
 	})
 	selections := make([]Selection, 0, len(rankedCandidates))
 	for _, selected := range rankedCandidates {
-		selections = append(selections, Selection{Candidate: selected.candidate, Version: selected.version})
+		selections = append(selections, Selection{Candidate: selected.candidate, Version: selected.version, SourceVersion: selected.numeric})
 	}
 	return selections, nil
 }
@@ -240,15 +259,15 @@ func rankMappedCandidates(rule Rule, filtered []Candidate) ([]Selection, error) 
 func validateRule(rule Rule) error {
 	switch rule.Channel {
 	case ChannelStable, ChannelBeta, ChannelDate:
-		if rule.Sort != SortSemVer && rule.Sort != SortUpdated {
-			return fmt.Errorf("channel %q requires semver or updated sorting", rule.Channel)
+		if rule.Sort != SortSemVer && rule.Sort != SortUpdated && rule.Sort != SortNumeric {
+			return fmt.Errorf("channel %q requires semver, updated, or numeric sorting", rule.Channel)
 		}
 	case ChannelNightly:
 		if rule.Sort != SortCreated || rule.TagRegex == nil {
 			return errors.New("nightly channel requires created sorting and tag regex")
 		}
 	case ChannelCustom:
-		if rule.TagRegex == nil || (rule.Sort != SortSemVer && rule.Sort != SortCreated && rule.Sort != SortUpdated) {
+		if rule.TagRegex == nil || (rule.Sort != SortSemVer && rule.Sort != SortCreated && rule.Sort != SortUpdated && rule.Sort != SortNumeric) {
 			return errors.New("custom channel requires tag regex and explicit sorting")
 		}
 	default:
@@ -256,6 +275,9 @@ func validateRule(rule Rule) error {
 	}
 	if rule.VersionRegex != nil && rule.VersionRegex.SubexpIndex("version") < 0 {
 		return errors.New("version_regex must define a named version group")
+	}
+	if rule.Sort == SortNumeric && (rule.VersionRegex == nil || rule.VersionTemplate == "" || (rule.Channel != ChannelStable && rule.Channel != ChannelCustom)) {
+		return errors.New("numeric sorting requires version_regex, an explicit application version_template, and a stable or custom channel")
 	}
 	return nil
 }

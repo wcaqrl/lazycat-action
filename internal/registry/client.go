@@ -50,8 +50,10 @@ type Client struct {
 }
 
 type TagFilter struct {
-	Include         *regexp.Regexp
-	Exclude         *regexp.Regexp
+	Include *regexp.Regexp
+	Exclude *regexp.Regexp
+	// SemVerRule is also used for explicit numeric version rules. Both can
+	// rank tag names before requesting manifests, avoiding a pull per old tag.
 	SemVerRule      *versioning.Rule
 	UpdatedRule     *versioning.Rule
 	MaxTags         int

@@ -71,6 +71,51 @@ Private source credentials are referenced by `auth_ref` and supplied through env
 
 ## Upstream changelog for official review
 
+### Vendor numeric versions (v1.8.0)
+
+OCI sources can explicitly select dotted numeric versions with more than three
+components. This is opt-in; existing SemVer Git/OCI adapters keep their rules.
+For example, Plex's `1.43.3.10896` must rank above `1.43.3.10861`, and comparing
+only `1.43.3` or using SemVer `+build` would miss the update:
+
+```yaml
+source:
+  kind: oci
+  image: docker.io/plexinc/pms-docker
+  select:
+    channel: stable
+    sort: numeric
+    tag_regex: '^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+-[a-f0-9]+$'
+    version_regex: '^(?P<version>(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)\.[0-9]+)-[a-f0-9]+$'
+    version_template: '{major}.{minor}.{patch}'
+changelog:
+  mode: command
+  command: python3 -B scripts/vendor-release.py
+```
+
+`version_regex` must capture the full dotted numeric identity in `version`.
+`version_template` maps to a valid application SemVer **base**, not the sorting
+key. The full upstream version and tag are retained in the state. When a new
+vendor build maps to an application version already used, the allocator bumps
+the current LPK patch; it never silently treats the new build as the old release.
+Consequently the LPK version can differ from the vendor's first three numbers.
+Numeric rollback and a tag/digest changing under the same numeric release stop
+the pipeline. Rejected-source suppression and explicit `retry-rejected` still
+apply. Registry manifests are fetched in ranked order, not once per old tag.
+
+The adapter's changelog command runs in the project root, including dry-run
+checks for new releases, **before** image delivery. It receives
+`LAZYCAT_SOURCE_VERSION`, `LAZYCAT_SOURCE_TAG`, `LAZYCAT_SOURCE_REF`,
+`LAZYCAT_SOURCE_REVISION`, and `LAZYCAT_APPLICATION_VERSION`; its stdout is the
+original-language changelog. Nonzero exit or empty output fails the check.
+Store/registry/GitHub credentials are not inherited by this command. Use it to
+verify that a vendor API's public version matches the selected image before
+using that API's notes. Do not mix this mode with `git_url` or Git auth fields.
+
+Command preparation can use `{source_ref}@{source_revision}` as `output_image`
+to return the original, full, immutable reference after adapter upgrade tests;
+the existing `{revision}` placeholder still denotes a shortened revision.
+
 An adapter can connect an OCI image to the Git repository that produced its releases:
 
 ```yaml

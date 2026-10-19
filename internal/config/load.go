@@ -106,12 +106,15 @@ func applyDefaults(value *Config) {
 	value.Source.AuthRef = strings.TrimSpace(value.Source.AuthRef)
 	value.Changelog.GitURL = strings.TrimSpace(value.Changelog.GitURL)
 	value.Changelog.AuthRef = strings.TrimSpace(value.Changelog.AuthRef)
+	value.Changelog.Command = strings.TrimSpace(value.Changelog.Command)
 	value.Source.Select.Strategy = strings.ToLower(strings.TrimSpace(value.Source.Select.Strategy))
 	value.Source.Select.Branch = strings.TrimSpace(value.Source.Select.Branch)
 	value.Source.Select.TagRegex = strings.TrimSpace(value.Source.Select.TagRegex)
 	value.Source.Select.ExcludeRegex = strings.TrimSpace(value.Source.Select.ExcludeRegex)
 	value.Source.Select.Channel = strings.ToLower(strings.TrimSpace(value.Source.Select.Channel))
 	value.Source.Select.Sort = strings.ToLower(strings.TrimSpace(value.Source.Select.Sort))
+	value.Source.Select.VersionRegex = strings.TrimSpace(value.Source.Select.VersionRegex)
+	value.Source.Select.VersionTemplate = strings.TrimSpace(value.Source.Select.VersionTemplate)
 	value.Build.Prepare.Mode = strings.ToLower(strings.TrimSpace(value.Build.Prepare.Mode))
 	value.Build.Prepare.Command = strings.TrimSpace(value.Build.Prepare.Command)
 	value.Build.Prepare.Context = strings.TrimSpace(value.Build.Prepare.Context)
@@ -206,7 +209,13 @@ func validate(value Config) error {
 		if err := validateSource(value); err != nil {
 			return err
 		}
-		if value.Changelog.GitURL != "" {
+		if strings.EqualFold(value.Changelog.Mode, "command") {
+			if value.Changelog.Command == "" || value.Changelog.GitURL != "" || value.Changelog.AuthRef != "" || value.Changelog.MaxCommits != 0 {
+				return errors.New("changelog command mode requires command and must not define git_url, auth_ref, or max_commits")
+			}
+		} else if value.Changelog.Command != "" {
+			return errors.New("changelog.command requires mode=command")
+		} else if value.Changelog.GitURL != "" {
 			mode := strings.ToLower(strings.TrimSpace(value.Changelog.Mode))
 			if mode != "" && mode != "git-commits" && mode != "github-release" {
 				return errors.New("changelog.mode must be git-commits or github-release")
@@ -417,6 +426,9 @@ func validateSource(value Config) error {
 	}
 	switch source.Kind {
 	case SourceKindGit:
+		if source.Select.VersionRegex != "" || source.Select.VersionTemplate != "" || source.Select.Sort == "numeric" {
+			return errors.New("source version mapping and numeric sorting currently require an OCI source")
+		}
 		if source.URL == "" {
 			return errors.New("Git source URL is required")
 		}
@@ -448,12 +460,24 @@ func validateSource(value Config) error {
 	default:
 		return fmt.Errorf("unsupported source kind %q", source.Kind)
 	}
-	for label, pattern := range map[string]string{"tag_regex": source.Select.TagRegex, "exclude_regex": source.Select.ExcludeRegex} {
+	for label, pattern := range map[string]string{"tag_regex": source.Select.TagRegex, "exclude_regex": source.Select.ExcludeRegex, "version_regex": source.Select.VersionRegex} {
 		if pattern != "" {
 			if _, err := regexp.Compile(pattern); err != nil {
 				return fmt.Errorf("source %s is invalid: %w", label, err)
 			}
 		}
+	}
+	if source.Select.VersionRegex != "" {
+		pattern, _ := regexp.Compile(source.Select.VersionRegex)
+		if pattern.SubexpIndex("version") < 0 {
+			return errors.New("source version_regex must define a named version group")
+		}
+	}
+	if source.Select.Sort == "numeric" && (source.Select.VersionRegex == "" || source.Select.VersionTemplate == "") {
+		return errors.New("source numeric sorting requires version_regex and an explicit application version_template")
+	}
+	if source.Select.Sort == "numeric" && source.Select.Channel != "" && source.Select.Channel != "stable" && source.Select.Channel != "custom" {
+		return errors.New("source numeric sorting supports stable or custom channels")
 	}
 	return nil
 }
@@ -513,7 +537,7 @@ func validatePrepare(value Config) error {
 	if prepare.Output != "" {
 		for _, placeholder := range regexp.MustCompile(`\{[^{}]+\}`).FindAllString(prepare.Output, -1) {
 			switch placeholder {
-			case "{version}", "{source_version}", "{revision}", "{fingerprint}":
+			case "{version}", "{source_version}", "{revision}", "{fingerprint}", "{source_ref}", "{source_revision}":
 			default:
 				return fmt.Errorf("unsupported output_image placeholder %q", placeholder)
 			}

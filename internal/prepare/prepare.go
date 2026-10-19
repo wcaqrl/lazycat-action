@@ -209,6 +209,7 @@ func expandOutput(template string, candidate source.Candidate, applicationVersio
 	}
 	replacements := map[string]string{
 		"{version}": applicationVersion, "{source_version}": candidate.Version,
+		"{source_ref}": candidate.Ref, "{source_revision}": candidate.Revision,
 		"{revision}": shortRevision, "{fingerprint}": shortFingerprint,
 	}
 	result := template

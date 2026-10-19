@@ -25,6 +25,21 @@ func TestPassthroughPinsOCIDigest(t *testing.T) {
 	}
 }
 
+func TestCommandCanReturnExactlyTheTestedSourceDigest(t *testing.T) {
+	candidate := source.Candidate{Kind: "oci", Ref: "docker.io/plexinc/pms-docker:1.43.4.10903-e5521bd8c", Revision: "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"}
+	runner := prepare.Runner{Run: func(_ context.Context, _ string, _ []string, environment []string, _, _ io.Writer) error {
+		want := "LAZYCAT_OUTPUT_IMAGE=" + candidate.Ref + "@" + candidate.Revision
+		if !strings.Contains(strings.Join(environment, "\n"), want) {
+			t.Fatalf("missing immutable output: %v", environment)
+		}
+		return nil
+	}}
+	result, err := runner.Prepare(t.Context(), prepare.Request{ProjectRoot: t.TempDir(), Candidate: candidate, Target: platform.Target{OS: "linux", Arch: "amd64"}, Config: config.Config{Source: config.Source{Kind: config.SourceKindOCI}, Build: config.Build{Prepare: config.Prepare{Mode: "command", Command: "./scripts/test-upgrade.sh", Output: "{source_ref}@{source_revision}"}}}})
+	if err != nil || result.Image != candidate.Ref+"@"+candidate.Revision {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+}
+
 func TestCommandReceivesSourceAndApplicationVersions(t *testing.T) {
 	root := t.TempDir()
 	called := false

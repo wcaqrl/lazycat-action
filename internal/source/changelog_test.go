@@ -13,6 +13,30 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/source"
 )
 
+func TestCommandChangelogReceivesPinnedSourceAndNoTokens(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "notes.txt"), []byte("Plex fixes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LZC_API_TOKEN", "must-not-reach-command")
+	t.Setenv("GITHUB_TOKEN", "must-not-reach-command")
+	settings := config.Changelog{Mode: "command", WorkingDirectory: root,
+		Command: `test -z "${LZC_API_TOKEN:-}${GITHUB_TOKEN:-}"; test "$LAZYCAT_SOURCE_TAG" = '1.43.3.10896-cb3ebc72d'; test "$LAZYCAT_SOURCE_REVISION" = 'sha256:pinned'; printf '%s\n' "$LAZYCAT_SOURCE_VERSION"; cat notes.txt`}
+	notes, err := (source.GitRunner{}).Changelog(t.Context(), settings,
+		source.Candidate{Kind: "oci", Version: "1.43.3.10896", Tag: "1.43.3.10896-cb3ebc72d", Revision: "sha256:pinned"}, source.Candidate{}, "1.42.2", "1.43.3")
+	if err != nil || notes != "1.43.3.10896\nPlex fixes" {
+		t.Fatalf("notes=%q err=%v", notes, err)
+	}
+	settings.Command = "exit 7"
+	if _, err := (source.GitRunner{}).Changelog(t.Context(), settings, source.Candidate{}, source.Candidate{}, "", ""); err == nil {
+		t.Fatal("accepted failed public-version validation")
+	}
+	settings.Command = "true"
+	if _, err := (source.GitRunner{}).Changelog(t.Context(), settings, source.Candidate{}, source.Candidate{}, "", ""); err == nil {
+		t.Fatal("accepted empty notes")
+	}
+}
+
 func TestChangelogUsesGitHubReleaseBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/repos/usememos/memos/releases/tags/v0.31.0" {

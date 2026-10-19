@@ -37,13 +37,16 @@ type State struct {
 	File string `yaml:"file"`
 }
 
-// Changelog selects the Git history corresponding to a source release.
-// For OCI sources, GitURL must point to the repository that publishes its tags.
+// Changelog selects Git history, a release body, or an adapter-owned command.
+// Commands can validate vendor release APIs before any image is copied.
 type Changelog struct {
 	Mode       string `yaml:"mode"`
 	GitURL     string `yaml:"git_url"`
 	AuthRef    string `yaml:"auth_ref"`
 	MaxCommits int    `yaml:"max_commits"`
+	Command    string `yaml:"command"`
+	// WorkingDirectory is supplied by the pipeline, never by YAML.
+	WorkingDirectory string `yaml:"-"`
 }
 
 type SourceKind string
@@ -68,6 +71,10 @@ type SourceSelect struct {
 	ExcludeRegex string `yaml:"exclude_regex"`
 	Channel      string `yaml:"channel"`
 	Sort         string `yaml:"sort"`
+	// Numeric sorting keeps vendor build components (for example Plex's fourth
+	// component) separate from the three-component application SemVer mapping.
+	VersionRegex    string `yaml:"version_regex"`
+	VersionTemplate string `yaml:"version_template"`
 }
 
 type Project struct {

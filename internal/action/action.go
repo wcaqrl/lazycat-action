@@ -753,6 +753,17 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 	if err != nil {
 		return Result{}, actionError(CodeVersionNotFound, "unable to discover the configured source", err)
 	}
+	if cfg.Source.Select.Sort == "numeric" && lock.Source.Version != "" {
+		comparison, compareErr := versioning.CompareNumericVersions(candidate.Version, lock.Source.Version)
+		if compareErr != nil || comparison < 0 {
+			return Result{}, actionError(CodeVersionDowngradeBlocked, "numeric upstream version is older than the recorded release or cannot be compared", compareErr)
+		}
+		// A rejected release must not evade duplicate protection by moving its
+		// image tag/digest. New vendor builds need a higher numeric version.
+		if comparison == 0 && !pipelinestate.SameSource(candidate, lock.Source) {
+			return Result{}, actionError(CodeConfigInvalid, "upstream numeric release changed its tag or digest without increasing its version", nil)
+		}
+	}
 	fingerprint, err := dependencies.Fingerprint(ctx, cfg, candidate)
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to fingerprint source pipeline inputs", err)
@@ -777,7 +788,14 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 		}
 		changed = true
 	}
-	version, err := sourceApplicationVersion(candidate.Version, info.Version, lock, fingerprint)
+	applicationBase := candidate.Version
+	if candidate.ApplicationVersion != "" {
+		applicationBase = candidate.ApplicationVersion
+	}
+	// Multiple vendor builds can share a three-component base. The existing
+	// patch allocator keeps LPK versions strictly increasing; source.Version
+	// remains the authoritative full upstream version, never the LPK version.
+	version, err := sourceApplicationVersion(applicationBase, info.Version, lock, fingerprint)
 	if processed && !resumable && !input.RetryRejected {
 		version = lock.Application.Version
 		for _, review := range lock.Reviews {
@@ -836,11 +854,13 @@ func runSourceCheck(ctx context.Context, input Input, cfg config.Config, info pr
 			result.Changelog = input.Changelog
 		} else if lock.Fingerprint == fingerprint && lock.Application.Changelog != "" {
 			result.Changelog = lock.Application.Changelog
-		} else if cfg.Changelog.GitURL != "" {
+		} else if cfg.Changelog.GitURL != "" || cfg.Changelog.Command != "" {
 			if dependencies.DiscoverChangelog == nil {
 				return Result{}, actionError(CodeConfigInvalid, "changelog discovery is unavailable", nil)
 			}
-			result.Changelog, err = dependencies.DiscoverChangelog(ctx, cfg.Changelog, candidate, lock.Source, info.Version, version)
+			settings := cfg.Changelog
+			settings.WorkingDirectory = info.Root
+			result.Changelog, err = dependencies.DiscoverChangelog(ctx, settings, candidate, lock.Source, info.Version, version)
 			if err != nil {
 				return Result{}, actionError(CodeVersionNotFound, "unable to discover the upstream changelog", err)
 			}

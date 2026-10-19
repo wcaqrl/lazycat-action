@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -22,6 +23,9 @@ var commitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
 // Changelog builds release notes from the commits between upstream releases.
 // The source revision is used only for Git sources; an OCI digest is never a Git commit.
 func (runner GitRunner) Changelog(ctx context.Context, settings config.Changelog, candidate, previous Candidate, currentVersion, targetVersion string) (string, error) {
+	if strings.EqualFold(strings.TrimSpace(settings.Mode), "command") {
+		return commandChangelog(ctx, settings, candidate, targetVersion)
+	}
 	if strings.TrimSpace(settings.GitURL) == "" {
 		return "", nil
 	}
@@ -128,6 +132,40 @@ func (runner GitRunner) Changelog(ctx context.Context, settings config.Changelog
 		header += " (since " + currentVersion + ")"
 	}
 	return header + "\n" + strings.Join(lines, "\n"), nil
+}
+
+// commandChangelog lets an adapter validate and describe a release published
+// outside GitHub (such as Plex's public downloads API). It runs before image
+// delivery, including dry runs, so a mismatched public release stops packaging.
+// Store PATs, GitHub tokens, and registry credentials are not inherited.
+func commandChangelog(ctx context.Context, settings config.Changelog, candidate Candidate, targetVersion string) (string, error) {
+	if strings.TrimSpace(settings.Command) == "" {
+		return "", errors.New("changelog command is required")
+	}
+	command := exec.CommandContext(ctx, "/bin/sh", "-eu", "-c", settings.Command)
+	command.Dir = settings.WorkingDirectory
+	for _, key := range []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
+		if value, ok := os.LookupEnv(key); ok {
+			command.Env = append(command.Env, key+"="+value)
+		}
+	}
+	command.Env = append(command.Env,
+		"LAZYCAT_SOURCE_VERSION="+candidate.Version,
+		"LAZYCAT_SOURCE_TAG="+candidate.Tag,
+		"LAZYCAT_SOURCE_REF="+candidate.Ref,
+		"LAZYCAT_SOURCE_REVISION="+candidate.Revision,
+		"LAZYCAT_APPLICATION_VERSION="+targetVersion,
+	)
+	command.Stderr = os.Stderr
+	output, err := command.Output()
+	if err != nil {
+		return "", fmt.Errorf("run adapter changelog command: %w", err)
+	}
+	notes := strings.TrimSpace(string(output))
+	if notes == "" || len(notes) > 1<<20 {
+		return "", errors.New("adapter changelog must contain between 1 and 1048576 bytes")
+	}
+	return notes, nil
 }
 
 func (runner GitRunner) githubReleaseChangelog(ctx context.Context, gitURL, tag, targetVersion string) (string, error) {

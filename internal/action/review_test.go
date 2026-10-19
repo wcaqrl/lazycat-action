@@ -47,6 +47,39 @@ func rejectedLock() pipelinestate.Lock {
 	return pipelinestate.Lock{Source: candidate, Fingerprint: "old-recipe", Status: "submitted", Application: pipelinestate.Application{PackageID: "dev.example.app", Version: "1.4.2", LPKSHA256: "abc"}, Reviews: []pipelinestate.Review{{ID: 9, Source: candidate, Fingerprint: "old-recipe", ApplicationVersion: "1.4.2", Status: "rejected", Reason: "fix packaging"}}}
 }
 
+func TestNumericVendorBuildUsesSeparateIncreasingLPKVersion(t *testing.T) {
+	lock := pipelinestate.Lock{Application: pipelinestate.Application{Version: "1.43.3"}}
+	candidate := source.Candidate{Kind: "oci", Version: "1.43.3.10896", ApplicationVersion: "1.43.3", Tag: "1.43.3.10896-cb3ebc72d", Ref: "docker.io/plexinc/pms-docker:1.43.3.10896-cb3ebc72d", Revision: "sha256:new"}
+	deps := reviewDependencies(t, &lock, candidate)
+	load := deps.LoadConfig
+	deps.LoadConfig = func(path string) (config.Config, error) {
+		cfg, err := load(path)
+		cfg.Source.Kind = config.SourceKindOCI
+		cfg.Source.Select.Sort = "numeric"
+		return cfg, err
+	}
+	result, err := Run(t.Context(), Input{Operation: OperationCheck, DryRun: true}, deps)
+	if err != nil || !result.Changed || result.Version != "1.43.4" {
+		t.Fatalf("result=%#v err=%v", result, err)
+	}
+	lock.Source = candidate
+	lock.Source.Version = "1.43.3.10900"
+	if _, err := Run(t.Context(), Input{Operation: OperationCheck, DryRun: true}, deps); err == nil {
+		t.Fatal("accepted numeric downgrade")
+	}
+	lock.Source = candidate
+	lock.Source.Revision = "sha256:old"
+	if _, err := Run(t.Context(), Input{Operation: OperationCheck, DryRun: true}, deps); err == nil {
+		t.Fatal("accepted retagged numeric release")
+	}
+	lock.Source = candidate
+	lock.Reviews = []pipelinestate.Review{{Source: candidate, ApplicationVersion: "1.43.4", Status: "rejected"}}
+	result, err = Run(t.Context(), Input{Operation: OperationCheck, DryRun: true}, deps)
+	if err != nil || result.Changed || result.Version != "1.43.4" {
+		t.Fatalf("rejected result=%#v err=%v", result, err)
+	}
+}
+
 func TestRejectedSourceDoesNotRebuildEvenWhenRecipeChanges(t *testing.T) {
 	lock := rejectedLock()
 	deps := reviewDependencies(t, &lock, lock.Source)

@@ -1048,3 +1048,47 @@ stores:
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestNumericSourceAndCommandChangelogConfiguration(t *testing.T) {
+	base := `version: 2
+source:
+  kind: oci
+  image: docker.io/plexinc/pms-docker
+  select:
+    sort: numeric
+    version_regex: '^(?P<version>(?P<major>[0-9]+)\.(?P<minor>[0-9]+)\.(?P<patch>[0-9]+)\.[0-9]+)-[a-f0-9]+$'
+    version_template: '{major}.{minor}.{patch}'
+changelog:
+  mode: command
+  command: python3 scripts/release.py
+build:
+  prepare:
+    mode: command
+    command: ./scripts/test-upgrade.sh
+    output_image: '{source_ref}@{source_revision}'
+`
+	for _, test := range []struct{ name, data, wantErr string }{
+		{"valid", base, ""},
+		{"missing mapping", strings.Replace(base, "    version_template: '{major}.{minor}.{patch}'\n", "", 1), "numeric sorting requires"},
+		{"missing named version", strings.Replace(base, "?P<version>", "?P<vendor>", 1), "named version group"},
+		{"mixed changelog", strings.Replace(base, "changelog:\n", "changelog:\n  git_url: https://github.com/plexinc/pms-docker.git\n", 1), "must not define git_url"},
+		{"empty command", strings.Replace(base, "  command: python3 scripts/release.py\n", "", 1), "requires command"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yml")
+			if err := os.WriteFile(path, []byte(test.data), 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := config.Load(path)
+			if test.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), test.wantErr) {
+					t.Fatalf("err=%v", err)
+				}
+				return
+			}
+			if err != nil || got.Source.Select.Sort != "numeric" || got.Changelog.Command == "" {
+				t.Fatalf("cfg=%#v err=%v", got, err)
+			}
+		})
+	}
+}
