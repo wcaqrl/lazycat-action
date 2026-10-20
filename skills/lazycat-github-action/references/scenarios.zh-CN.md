@@ -1,6 +1,6 @@
 # 选择适配方式
 
-先复制[完整模板](../assets/adapter/)，再替换必要文件。以下均为需要按实际应用填写的通用模板，不是可直接安装的完整产品。适配器负责应用知识，执行器不猜测上游的 Dockerfile、数据迁移或登录方式。
+本文使用 GitHub 上游仓库、GitHub 适配仓库和 GitHub Actions。先复制[完整模板](../assets/adapter/)，再替换必要文件。以下均为需要按实际应用填写的通用模板，不是可直接安装的完整产品。适配器负责应用知识，执行器不猜测上游的 Dockerfile、数据迁移或登录方式。
 
 | 目标情况 | 采用方式 | 模板 |
 |---|---|---|
@@ -66,7 +66,7 @@ build:
 
 ## 私有源与中转
 
-GitHub Runner 可以读取 Gitee，Gitee Runner 也可以读取 GitHub。私有 Git 源需只读 SSH Key + 可信 known_hosts，或 HTTPS Token。Private Git changelog 建议使用 `git-commits` 并设置同一 `auth_ref`；不要假设 SSH Key 会自动变成 GitHub Release API 的登录凭据。
+私有 GitHub 源仓库需只读 SSH Key + 可信 known_hosts，或 HTTPS Token。Private Git changelog 建议使用 `git-commits` 并设置同一 `auth_ref`；不要假设 SSH Key 会自动变成 GitHub Release API 的登录凭据。
 
 官方服务不能拉取私有 Registry 时，选择能匿名读取的受控发布源、摘要一致的 `copy_source`，或配置 `staging_image` 并在工作流启用 `enable-image-staging: true`。源码访问凭据、镜像仓库凭据、懒猫 PAT 是三种不同权限。
 

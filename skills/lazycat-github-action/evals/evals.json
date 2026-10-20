@@ -1,8 +1,8 @@
 {
   "evals": [
     {
-      "id": "private-gitee-default-branch",
-      "prompt": "Monitor a private Gitee repository's default branch and submit updates to the LazyCat official store.",
+      "id": "private-github-default-branch",
+      "prompt": "Monitor a private GitHub repository's default branch in GitHub Actions and submit updates to the LazyCat official store.",
       "mustInclude": ["version: 2", "auth_ref", "branch: auto", "LZC_API_TOKEN"],
       "mustNotInclude": ["SSH private key value", "publish-private"]
     },

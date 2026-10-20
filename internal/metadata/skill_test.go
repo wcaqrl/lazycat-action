@@ -14,7 +14,7 @@ func TestRepositorySkillDescribesOfficialGenericPipelines(t *testing.T) {
 	text := string(data)
 	for _, required := range []string{
 		"official", "version: 2", "source:", "auth_ref", "branch: auto",
-		"dockerfile", "LZC_API_TOKEN", "GitHub", "Gitee", "lazycat.lock",
+		"dockerfile", "LZC_API_TOKEN", "GitHub", "lazycat.lock",
 	} {
 		if !strings.Contains(strings.ToLower(text), strings.ToLower(required)) {
 			t.Fatalf("skill is missing %q", required)

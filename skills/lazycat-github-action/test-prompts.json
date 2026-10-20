@@ -1,7 +1,7 @@
 [
   {
     "id": "branch-without-tags",
-    "prompt": "目标 Gitee 仓库没有 Tag，默认分支有更新时自动发布。",
+    "prompt": "目标 GitHub 仓库没有 Tag，默认分支有更新时自动发布。",
     "expected": "自动发现默认分支，比较 commit SHA，并独立增加懒猫应用 patch 版本。"
   },
   {

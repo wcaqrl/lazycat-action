@@ -1,6 +1,6 @@
 # 从空仓库创建一个应用适配器
 
-适用于能在懒猫微服 Linux 环境运行的应用。上游源码不需要知道懒猫；你只维护自己的 `xxx-adapter`，调用公共的 `lazycat-action@v1`。无需 fork 执行器，也无需让本地电脑一直开机。
+本文只讨论 **GitHub 上游项目、GitHub 适配仓库和 GitHub Actions Runner**，适用于能在懒猫微服 Linux 环境运行的应用。上游源码不需要知道懒猫；你只维护自己的 `xxx-adapter`，调用公共的 `lazycat-action@v1`。无需 fork 执行器，也无需让本地电脑一直开机。
 
 希望让 AI 代做时，使用 [AI 任务说明](ai-adapter-guide.md)。不同镜像与构建方式见[场景选择](../skills/lazycat-github-action/references/scenarios.zh-CN.md)。
 
@@ -10,7 +10,7 @@
 
 | 必须确认 | 内容 |
 |---|---|
-| 上游 | GitHub/Gitee 地址、正式版本 Tag 规则、部署文档 |
+| 上游 | GitHub 地址、正式版本 Tag 规则、部署文档 |
 | 应用身份 | 你有权维护的包名、应用名称、自己的适配仓库 |
 | 镜像或构建 | 官方镜像及目标架构，或可执行的源码构建方案 |
 | 运行要求 | 端口、数据库、数据目录、启动参数、登录方式 |

@@ -2,11 +2,14 @@
 
 [中文](README.zh-CN.md)
 
-`lazycat-action` is a platform-neutral pipeline for the LazyCat official application store. It discovers GitHub, Gitee, or OCI revisions, optionally builds a customized image, copies runtime images through the official developer API, builds and validates an LPK, and submits it for official review.
+`lazycat-action` automates LazyCat official store publication from a GitHub application adapter. Its GitHub Actions workflow discovers upstream GitHub releases or official OCI image versions, optionally builds a customized image, copies runtime images through the official developer API, builds and validates an LPK, and submits it for review.
 
 Source repositories remain unaware of LazyCat packaging. Keep `package.yml`, `lzc-build.yml`, `lzc-manifest.yml`, Dockerfiles, assets, and the version 2 pipeline recipe in a separate application adapter repository.
 
 Only the LazyCat official application store is supported.
+
+This onboarding documentation covers GitHub repositories and GitHub Actions.
+Official image sources can be GHCR, Docker Hub or another OCI registry.
 
 ## Start here
 
@@ -43,7 +46,7 @@ Version 2 source pipelines migrate legacy state locks automatically. The lock ke
 
 Review synchronization queries the official SDK list with paired `created_at_start` / `created_at_end` values in Asia/Shanghai and matches the saved review ID client-side. The fixed window follows the review's original creation time, not its last polling time. If submission succeeds but pushing its state fails, the next run recovers it from the persisted packaging time, version, automation channel and LPK hash. Locks without timestamps perform a one-time newest-first paginated lookup during migration; missing historical records become `untracked` and still block duplicate submissions. Terminal reviews are retained and no longer polled.
 
-Adapters expose a `workflow_dispatch` boolean `retry-rejected`, default false, and pass it to the reusable workflow. After fixing the adapter, explicitly enable it and disable `dry-run` to rebuild the rejected source with a new application patch version. Old review history remains. The CLI flag is `--retry-rejected`; Gitee uses `LAZYCAT_RETRY_REJECTED=true`. Keep the `@v1` reference, `contents: write`, and the adapter's `LZC_API_TOKEN` secret.
+Adapters expose a `workflow_dispatch` boolean `retry-rejected`, default false, and pass it to the reusable workflow. After fixing the adapter, explicitly enable it and disable `dry-run` to rebuild the rejected source with a new application patch version. Old review history remains. The CLI flag is `--retry-rejected`. Keep the `@v1` reference, `contents: write`, and the adapter's `LZC_API_TOKEN` secret.
 
 ## Minimal version 2 recipe
 
@@ -55,7 +58,7 @@ project:
   target_arch: amd64
 source:
   kind: git
-  url: git@gitee.com:example/private-app.git
+  url: git@github.com:example/private-app.git
   auth_ref: source
   select:
     strategy: branch-head
@@ -176,6 +179,6 @@ lazycat-action run --operation publish-official \
 `check` without `--dry-run` can copy images and build an LPK. Dry-run skips
 preparation, but an adapter changelog command still executes and must be read-only.
 
-GitHub users can call `.github/workflows/lazycat.yml@v1`. Gitee Go and other Linux runners call the same CLI or `scripts/gitee-run.sh`; the wrapper submits a newly packaged LPK to the official store by default.
+Use `.github/workflows/lazycat.yml@v1` from the adapter's GitHub Actions workflow. The CLI is also available for local debugging; it does not require a separate repository platform.
 
 See the [Chinese documentation](README.zh-CN.md) for the complete configuration examples.

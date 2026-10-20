@@ -1,6 +1,6 @@
 ---
 name: lazycat-github-action
-description: Create or update a separate application adapter that monitors GitHub, Gitee, or OCI releases, builds a LazyCat LPK, and submits it to the official store. Use for adapter setup, custom image preparation, multi-image releases, and publication troubleshooting.
+description: Create or update a GitHub application adapter that monitors upstream GitHub releases or official OCI images, builds a LazyCat LPK in GitHub Actions, and submits it to the official store. Use for adapter setup, custom image preparation, multi-image releases, and publication troubleshooting.
 ---
 
 # LazyCat application adapters
@@ -9,6 +9,7 @@ Keep the upstream project independent. Put `version: 2` configuration, LazyCat
 metadata, assets and application-specific scripts in the user's adapter
 repository. Reuse `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`;
 forking the executor is normally unnecessary. Only the official store is supported.
+This workflow covers GitHub upstream repositories, GitHub adapters and GitHub Actions.
 
 ## Inspect and choose
 

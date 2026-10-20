@@ -57,12 +57,10 @@ custom image. Configure target registry visibility so the official copy service
 can pull, or select a verified anonymous copy/staging source. A private Git
 SSH key and the LazyCat developer PAT do not grant Docker pull/push permission.
 
-## Gitee and local CLI
+## Local CLI debugging
 
-Gitee Go calls `scripts/gitee-run.sh` or the platform-neutral `lazycat-action run` command. The source provider and Runner provider are independent: a GitHub Runner may read Gitee, and a Gitee Runner may read GitHub.
-
-`run --operation check --config lazycat-action.yml --dry-run` is the read-only
-plan. Omitting `--dry-run` can deliver images and build an LPK. The Gitee wrapper
-defaults `LAZYCAT_PUBLISH_AFTER_CHECK=true`, so its real run also submits a newly
-built package; set `LAZYCAT_DRY_RUN=true` for the first check. Set
-`LAZYCAT_PUBLISH_AFTER_CHECK=false` to build without its follow-up submission.
+The documented publication path uses GitHub Actions. For local inspection use
+`lazycat-action run --operation check --config lazycat-action.yml --dry-run`.
+Omitting `--dry-run` can deliver images and build an LPK. Explicit CLI publication
+uses `--operation publish-official` with a verified LPK path, version and SHA256;
+GitHub's reusable workflow normally handles that step.

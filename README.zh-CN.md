@@ -2,11 +2,13 @@
 
 [English](README.md)
 
-`lazycat-action` 是平台无关的懒猫官方应用商店发布工具。它可以定时发现 GitHub、Gitee 或 OCI 镜像的新 revision，按需构建定制镜像，调用懒猫官方镜像转存接口，生成并校验 LPK，最后提交官方开发者平台审核。
+`lazycat-action` 用于通过 GitHub 应用适配仓库自动发布懒猫官方应用商店。它由 GitHub Actions 定时检查上游 GitHub 版本或官方 OCI 镜像版本，按需构建定制镜像，调用官方镜像转存接口，生成并校验 LPK，最后提交开发者平台审核。
 
 源项目不需要包含懒猫文件。`package.yml`、`lzc-build.yml`、`lzc-manifest.yml`、Dockerfile、图标、截图和发布配方应保存在单独的应用适配项目中。本仓库只包含通用执行器、平台入口和中性测试数据。
 
 发布目标只有懒猫官方应用商店。本项目不包含私有商店客户端、配置或凭据。
+
+当前入门文档、AI 指南和模板只围绕 **GitHub 仓库 + GitHub Actions** 展开。镜像来源仍可使用 GHCR、Docker Hub 等 OCI 仓库。
 
 ## 从这里开始
 
@@ -54,7 +56,7 @@
 
 Adapter 的 `workflow_dispatch` 增加 `retry-rejected` 布尔输入并传给可复用工作流。默认关闭。修复适配配置后，手动关闭 `dry-run` 并打开 `retry-rejected`，Action 使用同一被拒绝的源 revision，将应用版本提升一个 patch 后重新送审。旧拒绝记录保留。这个参数不适用于未被拒绝的源版本。
 
-CLI 对应 `run --retry-rejected --publish-after-check`；Gitee 入口使用 `LAZYCAT_RETRY_REJECTED=true`。各 Adapter 继续引用 `@v1`，需要 `contents: write` 和仓库 Secret `LZC_API_TOKEN`。审核状态同步仅适用于配置 `version: 2` 的源流程。
+CLI 对应 `run --retry-rejected --publish-after-check`。各 Adapter 继续引用 `@v1`，需要 `contents: write` 和仓库 Secret `LZC_API_TOKEN`。审核状态同步仅适用于配置 `version: 2` 的源流程。
 
 ### 自动抓取本次更新日志
 
@@ -100,7 +102,7 @@ project:
 
 source:
   kind: git
-  url: git@gitee.com:example/private-app.git
+  url: git@github.com:example/private-app.git
   auth_ref: source
   select:
     strategy: branch-head
@@ -127,7 +129,7 @@ stores:
     create_if_missing: false
 ```
 
-`branch: auto` 通过 `git ls-remote --symref <url> HEAD` 读取真实默认分支，不假设 GitHub 一定使用 `main`，也不假设 Gitee 一定使用 `master`。分支 commit 变化时，应用版本自动增加 patch。
+`branch: auto` 通过 `git ls-remote --symref <url> HEAD` 读取 GitHub 仓库的真实默认分支，不假设一定使用 `main`。分支 commit 变化时，应用版本自动增加 patch。
 
 ### Git SemVer Tag
 
@@ -241,14 +243,14 @@ images:
 
 `command` 模式还会收到 `LAZYCAT_SOURCE_DIR`、`LAZYCAT_OUTPUT_IMAGE`、`LAZYCAT_BUILD_FINGERPRINT` 和 `LAZYCAT_TARGET_PLATFORM`。Git revision 会被 checkout 到临时目录，任务结束后删除。
 
-## 私有 GitHub/Gitee 仓库
+## 私有 GitHub 仓库
 
 配置只保存逻辑凭据名称：
 
 ```yaml
 source:
   kind: git
-  url: git@gitee.com:example/private-app.git
+  url: git@github.com:example/private-app.git
   auth_ref: source
 ```
 
@@ -280,9 +282,9 @@ SSH Key 写入权限为 `0600` 的临时文件；Token 通过 `GIT_ASKPASS` 提�
 
 Reusable Workflow 使用本地校验过的 LPK 和 SHA256 直接提交官方平台，不要求创建 GitHub Release。
 
-## Gitee Go、自建 Runner 和本地 CLI
+## 本地 CLI 调试
 
-CLI 不依赖 GitHub 事件：
+GitHub Actions 是主要运行入口；需要本地调试时，也可以显式调用 CLI：
 
 ```bash
 lazycat-action run --operation check --config lazycat-action.yml --dry-run
@@ -301,8 +303,6 @@ lazycat-action run \
   --sha256 <sha256> \
   --changelog "Release 1.2.3"
 ```
-
-Gitee Go 可以调用 `scripts/gitee-run.sh`；该入口默认在发现更新并生成 LPK 后提交官方审核，详见 [Gitee Go 文档](docs/gitee-go.zh-CN.md)。Runner 所在平台和源仓库平台互不绑定。
 
 ## Version 1 兼容
 

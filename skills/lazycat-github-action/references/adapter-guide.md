@@ -1,7 +1,8 @@
 # AI adapter implementation guide
 
-This is an execution guide for a separate adapter repository, not a request to
-change the upstream project or the generic executor. Use the
+This guide covers GitHub upstream repositories and separate GitHub adapter
+repositories executed by GitHub Actions, not changes to the upstream project
+or the generic executor. Official OCI images may use GHCR or Docker Hub. Use the
 [complete starter](../assets/adapter/) and read only the relevant
 [scenarios](scenarios.zh-CN.md), [configuration](configuration.md) and
 [workflow](workflows.md) references. These paths stay within the skill package.
@@ -58,8 +59,8 @@ The adapter owns scheduling and manual inputs. It calls the public reusable
 workflow at `@v1`; it does not need to fork or run a permanent polling service.
 Copy hidden files from the starter too. Keep the dry-run and retry controls,
 write permissions, concurrency and state handling unless adapting them to an
-explicit repository policy. Do not assume a GitHub default branch is main or a
-Gitee default branch is master.
+explicit repository policy. Discover the GitHub repository's actual default
+branch rather than assuming it is main.
 
 For a new application either arrange a listing in the developer platform or
 configure `create_if_missing: true` and actual listing information/screenshots.
