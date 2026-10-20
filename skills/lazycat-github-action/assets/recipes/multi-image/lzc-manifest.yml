@@ -1,0 +1,30 @@
+usage: |
+  应用访问地址：https://{{ .S.AppDomain }}
+  请按实际应用配置数据库连接、工作进程及首次使用说明。
+application:
+  subdomain: example
+  background_task: true
+  routes:
+    - /=http://app.cloud.lazycat.app.example.lzcapp:8080
+services:
+  app:
+    # Configure database/worker connection settings from upstream deployment docs.
+    # upstream: ghcr.io/example/application:0.0.0
+    image: ghcr.io/example/application:0.0.0
+    binds:
+      - /lzcapp/var/data:/data
+  worker:
+    # upstream: ghcr.io/example/application-worker:0.0.0
+    image: ghcr.io/example/application-worker:0.0.0
+    binds:
+      - /lzcapp/var/worker:/cache
+  database:
+    # Select the database major and pin used by the actual upstream project.
+    # upstream: docker.io/postgres:17
+    image: docker.io/postgres:17
+    environment:
+      - POSTGRES_USER=application
+      - POSTGRES_DB=application
+      - 'POSTGRES_PASSWORD={{ .U.database_password }}'
+    binds:
+      - /lzcapp/var/database:/var/lib/postgresql/data

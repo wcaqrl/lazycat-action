@@ -1,0 +1,53 @@
+name: Update application for LazyCat
+run-name: ${{ (github.event_name == 'push' || (github.event_name == 'schedule' && vars.LAZYCAT_AUTO_PUBLISH != 'true') || (github.event_name == 'workflow_dispatch' && inputs.dry-run)) && 'LazyCat [check only]' || 'LazyCat [build and submit]' }}
+on:
+  push:
+    paths:
+      - .github/workflows/update.yml
+      - lazycat-action.yml
+      - lzc-build.yml
+      - lzc-manifest.yml
+      - lzc-deploy-params.yml
+      - package.yml
+      - icon.png
+      - image/**
+      - scripts/**
+      - tests/**
+  schedule:
+    # 03:17 UTC = 11:17 Asia/Shanghai. Scheduling may be delayed.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Check only; uncheck to copy images, build the LPK and submit review.
+        type: boolean
+        default: true
+      retry-rejected:
+        description: Explicitly retry a repaired rejected source with a new app patch.
+        type: boolean
+        default: false
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: lazycat-adapter-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  update:
+    # Add application-specific prerequisite tests or build.prepare verification.
+    uses: wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1
+    with:
+      config: lazycat-action.yml
+      operation: auto
+      runner: ubuntu-24.04
+      dry-run: ${{ github.event_name == 'push' || (github.event_name == 'schedule' && vars.LAZYCAT_AUTO_PUBLISH != 'true') || (github.event_name == 'workflow_dispatch' && inputs.dry-run) }}
+      retry-rejected: ${{ github.event_name == 'workflow_dispatch' && inputs.retry-rejected || false }}
+    secrets:
+      LZC_API_TOKEN: ${{ secrets.LZC_API_TOKEN }}
+      SOURCE_SSH_KEY: ${{ secrets.SOURCE_SSH_KEY }}
+      SOURCE_KNOWN_HOSTS: ${{ secrets.SOURCE_KNOWN_HOSTS }}
+      SOURCE_TOKEN: ${{ secrets.SOURCE_TOKEN }}
+      SOURCE_USERNAME: ${{ secrets.SOURCE_USERNAME }}
+      REGISTRY: ${{ secrets.REGISTRY }}
+      REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+      REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}

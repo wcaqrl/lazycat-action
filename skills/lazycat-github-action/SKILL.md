@@ -1,60 +1,89 @@
 ---
 name: lazycat-github-action
-description: Configure a repository-external Git or OCI source pipeline that builds and submits an LPK to the LazyCat official application store.
+description: Create or update a separate application adapter that monitors GitHub, Gitee, or OCI releases, builds a LazyCat LPK, and submits it to the official store. Use for adapter setup, custom image preparation, multi-image releases, and publication troubleshooting.
 ---
 
-# LazyCat official source pipelines
+# LazyCat application adapters
 
-Use this skill when a project needs to monitor a GitHub, Gitee, or OCI source and publish a LazyCat LPK. The source project remains independent; put the LazyCat files and `version: 2` pipeline recipe in a separate adapter project.
+Keep the upstream project independent. Put `version: 2` configuration, LazyCat
+metadata, assets and application-specific scripts in the user's adapter
+repository. Reuse `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`;
+forking the executor is normally unnecessary. Only the official store is supported.
 
-Only the LazyCat official application store is supported. Do not generate private-store configuration, credentials, operations, or Release URL plumbing.
+## Inspect and choose
 
-## Required inspection
+For an empty adapter, read the [AI guide](references/adapter-guide.md).
+The public [quick start](https://github.com/wcaqrl/lazycat-action/blob/main/docs/quickstart.zh-CN.md)
+covers human setup; the skill folder itself contains all essential instructions.
+Obtain the source URL, adapter location, package ID, app name, target platform,
+existing LPK if any, customization requirements and publication scope.
+Inspect deployment docs, stable tag conventions, image platforms, ports and
+data paths. For existing apps inspect the actual LPK and image metadata before
+changing service names, persistence mounts or installation parameters.
 
-1. Inspect `package.yml`, `lzc-build.yml`, `lzc-manifest.yml`, Dockerfiles, build scripts, and `.gitignore`.
-2. Identify one authoritative source: OCI digest, stable Git tag, or branch commit SHA.
-3. Use `branch: auto` when the remote default branch should be discovered. Never hardcode GitHub `main` or Gitee `master` without repository evidence.
-4. Keep private source credentials behind `auth_ref`. The YAML must never contain an SSH private key or Token.
-5. Use `LZC_API_TOKEN` only for LazyCat image copying and official review submission.
+Start from the complete [adapter directory](assets/adapter/), including hidden
+files. Replace example fields and the placeholder icon. Use the store version
+as the baseline for an existing app; `0.0.0` is only for an unpublished app.
 
-## Pipeline configuration
+| Situation | Source | Preparation |
+|---|---|---|
+| Git tag with official version images | Git stable tag | `images` |
+| Official versioned image is authoritative | OCI stable tags | `passthrough` |
+| Several images form one release | Git stable tag | `images`, all bindings |
+| Customize a base image | Git or OCI | `dockerfile` or `command` |
+| No published image | Git tag, or branch if needed | `dockerfile` or `command` |
 
-Start from [assets/lazycat-action.yml](assets/lazycat-action.yml). Choose one preparation mode:
-
-- `passthrough`: copy an OCI source image unchanged.
-- `dockerfile`: checkout an exact Git revision or pin an OCI digest, build and push a custom image.
-- `command`: run a trusted adapter script that may build content or an image.
-
-The update fingerprint combines the immutable source revision with the Dockerfile, command, build arguments, and configured build context. Persist it in `.lazycat-action.lock.yml` (`lazycat.lock` state). A matching `submitted` state is a no-op. A `packaged` state is resumable after an interrupted official submission.
-
-For private Git sources use a logical reference such as:
+Use [recipes](assets/recipes/) and the
+[scenario guide](references/scenarios.zh-CN.md) as needed. A Git tag
+does not require a published image if the adapter supplies a real source build.
+Do not substitute an unrelated `latest` image. For a source without tags,
+discover the actual default branch rather than assuming `main` or `master`:
 
 ```yaml
 source:
   kind: git
-  url: git@gitee.com:example/private-app.git
-  auth_ref: source
+  url: https://github.com/example/application.git
   select:
     strategy: branch-head
     branch: auto
 ```
 
-GitHub maps its Secret to `LAZYCAT_AUTH_SOURCE_SSH_KEY`; Gitee does the same in its encrypted pipeline variables. Also supply verified known-host content through `LAZYCAT_AUTH_SOURCE_KNOWN_HOSTS` when the Runner has no trusted system entry.
+Read [configuration](references/configuration.md) for private-source `auth_ref`,
+staging, numeric versions and preparation outputs. Private Git credentials use
+Secrets, not YAML values. A store PAT is not a Git or Docker login.
 
-## Official publication
+## Validate and publish
 
-Use the reusable GitHub workflow in [assets/lazycat-workflow.yml](assets/lazycat-workflow.yml), or run the Linux CLI on Gitee:
+1. Validate YAML and image/service bindings. Inspect the packaged metadata,
+   icon, Go templates and deployment parameters. Building an archive does not
+   demonstrate that the application runs.
+2. Use `lazycat-action run --operation check --config lazycat-action.yml --dry-run`
+   for a read-only plan. Without `--dry-run`, `check` can copy images and build
+   an LPK. Changelog commands also run during dry-run and should be read-only.
+3. Add application-specific startup/persistence tests and, for an existing app,
+   a meaningful old-to-new upgrade test. Test the selected digest, then verify
+   that packaging delivers the same digest.
+4. Put `LZC_API_TOKEN` in the adapter's Actions Secrets and verify ownership or
+   collaborator access. For a new app, create its listing first or configure
+   `create_if_missing` with the required listing data.
+5. Follow the user's authorization for commit, push and real submission.
+   The starter defaults manual runs to dry-run; schedules remain read-only
+   until the Actions variable `LAZYCAT_AUTO_PUBLISH=true` is configured.
 
-```bash
-lazycat-action run --operation check --config lazycat-action.yml
-lazycat-action run --operation publish-official \
-  --config lazycat-action.yml \
-  --version 1.2.3 \
-  --lpk-path dist/app.lpk \
-  --sha256 <sha256> \
-  --changelog "Release 1.2.3"
-```
+The [workflow reference](references/workflows.md) covers permissions, Secrets
+and manual controls. Keep store credentials out of upstream builds. Keep
+temporary files, secrets and `.lpk` files out of Git.
 
-The official step must use the locally validated LPK and SHA256. Check the current online version and pending review before creating another submission. Never expose the developer PAT to an upstream Dockerfile, source buildscript, or pull-request job.
+## Preserve state and verify outcomes
 
-See [references/configuration.md](references/configuration.md) and [references/workflows.md](references/workflows.md).
+Commit `.lazycat-action.lock.yml` (the resumable `lazycat.lock` state); never
+fabricate it or delete it to force publication. `packaged` can resume an
+interrupted submission. History suppresses automatic resubmission of a
+processed source, including rejected sources, even if only the recipe changes.
+A newer source can replace an older pending review. `retry-rejected` explicitly
+rebuilds a repaired rejected source with a new application patch version.
+
+After an authorized real run, verify the review ID/status and state commit.
+GitHub Release publication is independent and uploads only the versioned LPK;
+its failure must not block submission. Report source/app versions, tested and
+official image references, test evidence, run URL and LPK download.

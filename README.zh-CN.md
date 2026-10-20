@@ -8,11 +8,22 @@
 
 发布目标只有懒猫官方应用商店。本项目不包含私有商店客户端、配置或凭据。
 
+## 从这里开始
+
+- **开发者第一次接入：**[从空仓库创建适配器](docs/quickstart.zh-CN.md)。
+- **交给自己的 AI：**[可直接复制的任务说明](docs/ai-adapter-guide.md)和 [AI Skill](skills/lazycat-github-action/SKILL.md)。
+- **选择构建方式：**[单镜像、多镜像、自定义镜像和源码构建](skills/lazycat-github-action/references/scenarios.zh-CN.md)。
+- **直接复制文件：**[完整适配仓库模板](skills/lazycat-github-action/assets/adapter/)，包含隐藏工作流、包配置、占位图标及忽略规则。
+
+模板的手动运行默认 `dry-run`；定时任务也先只检查，设置适配仓库 Actions 变量 `LAZYCAT_AUTO_PUBLISH=true` 后才自动送审。这是新模板的控制方式，不改变已有适配器或执行器的默认行为。
+
 ## 三个仓库一起使用
 
-[Poster](https://github.com/wcaqrl/poster) 是一个具体的上游示例：它在 `vX.Y.Z` 标签发布时构建公开的 GHCR 镜像。对应的 [poster-adapter](https://github.com/wcaqrl/poster-adapter) 单独保存懒猫的 `package.yml`、`lzc-build.yml`、`lzc-manifest.yml`、图标与截图，以及 `version: 2` 的 `lazycat-action.yml`。本仓库只提供通用工具和可复用工作流，不收录具体应用。
+上游仓库提供源码、正式版本及可能存在的官方镜像；你自己的 `xxx-adapter` 保存应用运行配置、测试脚本、版本选择规则和定时工作流；本仓库提供通用执行器。源项目无需加入懒猫配置，也不需要 fork 执行器。
 
-适配仓库的定时工作流调用 `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`；`source.kind: oci` 加 `select.strategy: semver-tag` 从 GHCR 找到目标架构最高稳定版本及不可变镜像摘要。首次接入需要在适配仓库的 Actions Secrets 配置 `LZC_API_TOKEN`（开发者 PAT），并给予 `GITHUB_TOKEN` 写入仓库的权限。先手动执行 `dry-run` 检查选中的摘要和更新日志，再执行正式任务。正式运行会转存到懒猫官方仓库、构建并检查 LPK、将版本与锁文件提交回适配仓库，最后提交官方应用商店审核。
+适配仓库决定“监控谁、什么时候执行、如何定制和测试”，`lazycat-action` 负责按配置发现和比较版本、固定镜像、转存、打包、记录状态及送审。任务运行在适配仓库的 GitHub Runner 中，不是本工具后台常驻扫描所有应用。
+
+适配器调用 `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`。PAT 和源仓库/镜像仓库凭据配置在适配仓库的 Secrets 中；第一次先执行 `dry-run`，再通过实际应用测试后正式发布。
 
 ## 更新判断
 
@@ -22,9 +33,9 @@
 |---|---|---|
 | OCI 镜像 | 稳定 SemVer Tag | 目标平台 image digest |
 | Git Tag/Release Tag | 最高稳定 SemVer Tag | Tag 对应的 commit SHA |
+| Git 分支 | 指定分支或远程默认分支 | 分支 HEAD commit SHA |
 
 当官方商店已有待审核版本时，Action 仍会检查上游：候选版本更高则继续构建和提交，由官方商店在接收新审核后自动取消旧审核；候选版本相同或更低时暂停。同一个已记录 Git Tag 如果被移动到另一个 commit，流程会直接报错，不会用相同版本号静默发布不同源码。
-| Git 分支 | 指定分支或远程默认分支 | 分支 HEAD commit SHA |
 
 最终指纹还包含 `build.prepare` 命令、Dockerfile、构建参数和构建上下文内容。送审历史同时保留不可变的源标识，已经送审的源版本不会因配方调整被定时任务重复提交。
 
@@ -259,23 +270,7 @@ SSH Key 写入权限为 `0600` 的临时文件；Token 通过 `GIT_ASKPASS` 提�
 
 ## GitHub Actions
 
-```yaml
-name: Check and publish LazyCat application
-
-on:
-  schedule:
-    - cron: "17 3 * * *"
-  workflow_dispatch:
-
-jobs:
-  lazycat:
-    uses: wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1
-    with:
-      config: lazycat-action.yml
-      operation: auto
-      toolchains: docker
-    secrets: inherit
-```
+使用[完整工作流模板](skills/lazycat-github-action/assets/adapter/.github/workflows/update.yml)，包含只读 push、手动 `dry-run`/`retry-rejected`、定时发布开关和写回权限。更多参数见[工作流说明](skills/lazycat-github-action/references/workflows.md)。
 
 常用 Secret：
 
@@ -290,8 +285,10 @@ Reusable Workflow 使用本地校验过的 LPK 和 SHA256 直接提交官方平�
 CLI 不依赖 GitHub 事件：
 
 ```bash
-lazycat-action run --operation check --config lazycat-action.yml
+lazycat-action run --operation check --config lazycat-action.yml --dry-run
 ```
+
+不带 `--dry-run` 的 `check` 会在发现更新时转存/构建，并非只读命令。检查完成后是否自动送审由调用入口决定。
 
 官方发布：
 

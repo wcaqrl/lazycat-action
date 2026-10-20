@@ -1,0 +1,5 @@
+manifest: ./lzc-manifest.yml
+icon: ./icon.png
+pkgout: ./dist
+# For installation parameters, also configure:
+# deploy_params: ./lzc-deploy-params.yml

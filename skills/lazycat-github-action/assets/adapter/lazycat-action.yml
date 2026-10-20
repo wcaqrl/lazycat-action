@@ -1,0 +1,42 @@
+version: 2
+project:
+  root: .
+  build_config: lzc-build.yml
+  package_file: package.yml
+  output: dist/cloud.lazycat.app.example.lpk
+  target_arch: amd64
+source:
+  kind: git
+  url: https://github.com/example/application.git
+  select:
+    strategy: semver-tag
+    # Confirm whether upstream tags include v. Exclude prerelease tags.
+    tag_regex: '^v?[0-9]+\.[0-9]+\.[0-9]+$'
+changelog:
+  # Requires a stable GitHub Release for the exact selected Git tag.
+  mode: github-release
+  git_url: https://github.com/example/application.git
+state:
+  file: .lazycat-action.lock.yml
+update:
+  strategy: publish
+  allow_downgrade: false
+build:
+  run_buildscript: false
+  prepare:
+    mode: images
+images:
+  - id: app
+    target: service
+    service: app
+    # {source_version} strips a leading v; {tag} preserves the Git tag.
+    source: ghcr.io/example/application:{source_version}
+    delivery:
+      mode: lazycat
+stores:
+  official:
+    enabled: true
+    skip_if_version_exists: true
+    continue_if_newer_version: true
+    # Create the app listing before using this default.
+    create_if_missing: false

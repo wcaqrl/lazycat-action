@@ -1,4 +1,4 @@
 interface:
-  display_name: "LazyCat GitHub Action"
-  short_description: "Create LazyCat GitHub workflows automatically"
-  default_prompt: "Use $lazycat-github-action to inspect this repository and create the LazyCat Action configuration and GitHub workflows, then validate the generated files."
+  display_name: "LazyCat Application Adapter"
+  short_description: "Build and validate a LazyCat application adapter"
+  default_prompt: "Use $lazycat-github-action to inspect the upstream project, create or update its separate adapter, and validate it within my requested publication scope."

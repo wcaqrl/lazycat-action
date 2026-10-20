@@ -7,6 +7,26 @@
   {
     "id": "recipe-change",
     "prompt": "上游版本不变，但 Dockerfile 和插件列表修改了。",
-    "expected": "构建配方 Hash 进入指纹，因此仍然重新构建和提交官方审核。"
+    "expected": "配方进入指纹，但已处理的源版本仍受审核历史去重保护，不因配方变化自动重发；已拒绝版本修复后需显式 retry-rejected，分配新的应用 patch。"
+  },
+  {
+    "id": "empty-adapter-with-official-image",
+    "prompt": "已有公开 GitHub 项目及官方版本镜像，请从空仓库生成独立适配器，先测试，不送审。",
+    "expected": "复制完整模板并替换应用资料；工作流 @v1、默认 dry-run、定时发布开关、正确凭据和状态忽略规则；不触发真实送审。"
+  },
+  {
+    "id": "release-without-image",
+    "prompt": "上游有新 Git Tag，但从不发布 Docker 镜像，应该怎样适配？",
+    "expected": "保留 Git 版本来源，按实际源码提供 dockerfile 或 command 构建；没有构建方案时说明缺失，不能用 unrelated latest 冒充该版本。"
+  },
+  {
+    "id": "multi-image-upgrade",
+    "prompt": "已有商店包升级需要服务端、worker、数据库三种镜像，测试成功后才允许发布。",
+    "expected": "协调所有镜像，数据库使用独立兼容版本，保留服务名和数据目录；针对实际候选摘要验证升级，不以空数据库健康检查代替。"
+  },
+  {
+    "id": "release-job-failure",
+    "prompt": "LPK 已生成，但 GitHub Release 发布失败，是否停止商店送审？",
+    "expected": "Release 与送审独立，Release 失败不阻止送审；检查真实审核记录，单独修复 Release，不重复提交已处理源版本。"
   }
 ]

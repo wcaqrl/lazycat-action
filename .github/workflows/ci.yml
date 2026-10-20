@@ -29,7 +29,11 @@ jobs:
         run: go vet ./...
 
       - name: Validate workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7 .github/workflows/*.yml examples/*/.github/workflows/*.yml
+        run: >-
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
+          .github/workflows/*.yml examples/*/.github/workflows/*.yml
+          skills/lazycat-github-action/assets/adapter/.github/workflows/update.yml
+          skills/lazycat-github-action/assets/lazycat-workflow.yml
 
   shell:
     runs-on: ubuntu-latest

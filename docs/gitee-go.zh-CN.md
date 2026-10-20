@@ -5,11 +5,14 @@
 ```bash
 export LAZYCAT_CONFIG=lazycat-action.yml
 export LAZYCAT_OPERATION=auto
-export LZC_API_TOKEN='${GITEE_LZC_API_TOKEN}'
+export LZC_API_TOKEN="${GITEE_LZC_API_TOKEN}"
+export LAZYCAT_DRY_RUN=true  # 首次只检查；测试通过并决定发布后再设为 false
 ./scripts/gitee-run.sh
 ```
 
-`gitee-run.sh` 默认在 `check` 生成新 LPK 后立即执行 `publish-official`，并在提交前再次检查是否已有版本处于审核中。只想生成和校验 LPK 时，设置 `LAZYCAT_PUBLISH_AFTER_CHECK=false`。
+不带 dry-run 时，`gitee-run.sh` 默认在 `check` 生成新 LPK 后立即执行 `publish-official`。`check` 本身不是只读模式；只检查需设置 `LAZYCAT_DRY_RUN=true`。只想实际生成和校验 LPK、暂不跟进送审时，设置 `LAZYCAT_PUBLISH_AFTER_CHECK=false`。
+
+已有较旧的待审核版本不会阻止新的上游版本提交；同一已处理源版本受状态锁去重保护。这个命令行入口不会自动提供 GitHub Release 发布和 GitHub 工作流的状态 commit，需要在自己的 Gitee 流水线中保存锁文件、产物及提交更新。
 
 Gitee 私有源仓库推荐使用只读部署公钥。配方使用统一的逻辑凭据名：
 

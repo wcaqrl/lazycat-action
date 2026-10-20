@@ -1,0 +1,10 @@
+dist/
+.lazycat-action/
+.lazycat-artifact/
+*.lpk
+.env
+.env.*
+!.env.example
+__pycache__/
+*.py[cod]
+# Keep .lazycat-action.lock.yml tracked: it prevents duplicate submissions.

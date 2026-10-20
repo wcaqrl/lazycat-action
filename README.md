@@ -8,7 +8,23 @@ Source repositories remain unaware of LazyCat packaging. Keep `package.yml`, `lz
 
 Only the LazyCat official application store is supported.
 
-For a concrete three-repository setup, see [poster-adapter](https://github.com/wcaqrl/poster-adapter): Poster publishes tagged GHCR images, its adapter owns the LazyCat metadata and daily schedule, and this repository supplies the reusable workflow. Add the developer PAT as `LZC_API_TOKEN` in the adapter's Actions secrets and grant its workflow write access so it can record submitted versions. Test a manual dry run before publishing; the adapter's README describes the full setup.
+## Start here
+
+- [Developer quick start (Chinese)](docs/quickstart.zh-CN.md): from an empty adapter to verified publication.
+- [AI task prompt](docs/ai-adapter-guide.md) and [self-contained AI guide](skills/lazycat-github-action/references/adapter-guide.md).
+- [Complete starter adapter](skills/lazycat-github-action/assets/adapter/), including hidden workflow files, package metadata, a placeholder PNG and ignore rules.
+- [Scenario selection](skills/lazycat-github-action/references/scenarios.zh-CN.md): existing images, coordinated images, custom images and source builds.
+
+The upstream owns source/releases; the adapter owns app-specific configuration,
+tests, scheduling and state; this repository supplies the executor. Detection
+runs on the adapter's Runner, not a central always-on polling service. Other
+developers can use the public `@v1` workflow without forking this repository.
+Keep their PAT and source/registry credentials in their own adapter's Secrets.
+
+The new starter defaults manual runs to dry-run and schedules to checks only.
+After verification set the adapter's Actions variable `LAZYCAT_AUTO_PUBLISH=true`
+to enable scheduled submissions. This does not alter existing adapters or add a
+new executor requirement.
 
 ## Source identities
 
@@ -59,7 +75,7 @@ stores:
     skip_if_version_exists: true
 ```
 
-Preparation modes are `passthrough`, `dockerfile`, and `command`. A Dockerfile build receives the pinned `SOURCE_IMAGE`, `SOURCE_REF`, `SOURCE_REVISION`, and `SOURCE_VERSION`. A command build also receives `LAZYCAT_SOURCE_DIR`, `LAZYCAT_OUTPUT_IMAGE`, and the target platform.
+Preparation modes are `images`, `passthrough`, `dockerfile`, and `command`. A Dockerfile build receives the pinned `SOURCE_IMAGE`, `SOURCE_REF`, `SOURCE_REVISION`, and `SOURCE_VERSION`. A command build also receives `LAZYCAT_SOURCE_DIR`, `LAZYCAT_OUTPUT_IMAGE`, and the target platform.
 
 Use `build.prepare.mode: images` for a Git release that coordinates multiple runtime images. Each `images[].source` may use `{tag}`, `{source_version}`, `{version}`, or `{revision}`. All images are pinned and delivered before the Manifest is updated as one change; build and state failures restore the previous image set and package version.
 
@@ -148,7 +164,7 @@ Official submission detects the original changelog's language locally and sends 
 ## CLI
 
 ```bash
-lazycat-action run --operation check --config lazycat-action.yml
+lazycat-action run --operation check --config lazycat-action.yml --dry-run
 lazycat-action run --operation publish-official \
   --config lazycat-action.yml \
   --version 1.2.3 \
@@ -156,6 +172,9 @@ lazycat-action run --operation publish-official \
   --sha256 <sha256> \
   --changelog "Release 1.2.3"
 ```
+
+`check` without `--dry-run` can copy images and build an LPK. Dry-run skips
+preparation, but an adapter changelog command still executes and must be read-only.
 
 GitHub users can call `.github/workflows/lazycat.yml@v1`. Gitee Go and other Linux runners call the same CLI or `scripts/gitee-run.sh`; the wrapper submits a newly packaged LPK to the official store by default.
 

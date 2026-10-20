@@ -1,0 +1,17 @@
+usage: |
+  应用访问地址：https://{{ .S.AppDomain }}
+  请补充首次使用说明及应用实际的数据目录。
+application:
+  subdomain: example
+  background_task: true
+  routes:
+    - /=http://app.cloud.lazycat.app.example.lzcapp:8080
+services:
+  app:
+    # First-run placeholder, replaced by official image delivery before build.
+    # Existing apps preserve the approved runtime image as the baseline.
+    # upstream: ghcr.io/example/application:0.0.0
+    image: ghcr.io/example/application:0.0.0
+    binds:
+      # Replace /data with the upstream's actual persistent-data directory.
+      - /lzcapp/var/data:/data

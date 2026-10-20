@@ -11,6 +11,24 @@
       "prompt": "Monitor an upstream OCI image, add features with a Dockerfile, and publish the LPK.",
       "mustInclude": ["mode: dockerfile", "SOURCE_IMAGE", "output_image", "official"],
       "mustNotInclude": ["latest only", "private store"]
+    },
+    {
+      "id": "new-adapter-dry-run",
+      "prompt": "Create a separate adapter for a GitHub app with official release images. Generate and test only; do not publish.",
+      "mustInclude": ["package.yml", "lzc-build.yml", "lzc-manifest.yml", "icon.png", "dry-run", "@v1", "LAZYCAT_AUTO_PUBLISH"],
+      "mustNotInclude": ["PAT value in YAML", "invented submitted lock", "real submission without authorization"]
+    },
+    {
+      "id": "processed-recipe-change",
+      "prompt": "The source version was already rejected. Only our adapter Dockerfile changed. Will a scheduled run submit it again?",
+      "mustInclude": ["source", "history", "retry-rejected", "patch"],
+      "mustNotInclude": ["delete the lock", "automatically resubmit solely because the recipe changed"]
+    },
+    {
+      "id": "multi-image-persistence",
+      "prompt": "An existing store LPK uses server, worker and database images. Adapt new releases while preserving old data.",
+      "mustInclude": ["mode: images", "service", "digest", "upgrade", "deployment"],
+      "mustNotInclude": ["use the app tag for the database", "healthcheck alone proves upgrade safety"]
     }
   ]
 }

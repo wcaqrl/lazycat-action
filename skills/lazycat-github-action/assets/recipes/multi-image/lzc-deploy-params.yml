@@ -1,0 +1,5 @@
+params:
+  - id: database_password
+    type: secret
+    name: 数据库密码
+    description: 为本次安装设置数据库密码，并按上游要求配置应用的数据库连接。
