@@ -1092,3 +1092,39 @@ build:
 		})
 	}
 }
+
+func TestGitSourceExplicitTagVersionMapping(t *testing.T) {
+	base := `version: 2
+source:
+  kind: git
+  url: https://github.com/DIYgod/RSSHub.git
+  select:
+    strategy: release
+    version_regex: '^v(?P<version>(?P<year>[0-9]{4})\.(?P<month>[0-9]{2})\.[0-9]{2}-(?P<build>[0-9]+)\.[a-f0-9]{7})$'
+    version_template: '{year}.{month}.{build}'
+build:
+  prepare:
+    mode: command
+    command: 'true'
+`
+	for _, tc := range []struct{ name, text, wantErr string }{
+		{"calendar tag", base, ""},
+		{"branch mapping rejected", strings.Replace(base, "strategy: release", "strategy: branch-head", 1), "tag strategy"},
+		{"numeric Git unsupported", strings.Replace(base, "strategy: release", "strategy: release\n    sort: numeric", 1), "numeric sorting"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yml")
+			if err := os.WriteFile(path, []byte(tc.text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := config.Load(path)
+			if tc.wantErr == "" {
+				if err != nil {
+					t.Fatal(err)
+				}
+			} else if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+				t.Fatalf("err=%v", err)
+			}
+		})
+	}
+}

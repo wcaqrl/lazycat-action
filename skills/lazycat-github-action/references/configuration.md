@@ -58,6 +58,19 @@ The server must be able to pull the copy source. `LZC_API_TOKEN` authenticates
 the developer API, not the upstream registry. Use the final returned official
 image reference; do not derive a personal registry namespace from the package ID.
 
+## Git vendor release tags (v1.9.0+)
+
+Git tag strategies can opt in to `version_regex` / `version_template` mapping.
+For example RSSHub's stable `v2026.11.06-8596.4be79cd` maps named year/month/build
+groups to `2026.11.8596` using `version_template: '{year}.{month}.{build}'`.
+The suffix is a stable build identity, not a prerelease. Stable SemVer ordering
+applies after mapping, with numeric core canonicalization. The original tag and
+peeled commit remain in source state and immutable image selection.
+Branch sources cannot use mapping; numeric vendor sorting remains OCI-only.
+Command changelogs also receive `LAZYCAT_PREVIOUS_SOURCE_REVISION` and
+`LAZYCAT_PREVIOUS_SOURCE_TAG` from parsed state (empty on first run), so adapters
+can describe the exact previous→selected range without parsing YAML themselves.
+
 ## Numeric vendor versions
 
 For explicit numeric OCI sorting, `sort: numeric` ranks all numeric components.

@@ -24,7 +24,7 @@ var commitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
 // The source revision is used only for Git sources; an OCI digest is never a Git commit.
 func (runner GitRunner) Changelog(ctx context.Context, settings config.Changelog, candidate, previous Candidate, currentVersion, targetVersion string) (string, error) {
 	if strings.EqualFold(strings.TrimSpace(settings.Mode), "command") {
-		return commandChangelog(ctx, settings, candidate, targetVersion)
+		return commandChangelog(ctx, settings, candidate, previous, targetVersion)
 	}
 	if strings.TrimSpace(settings.GitURL) == "" {
 		return "", nil
@@ -138,7 +138,7 @@ func (runner GitRunner) Changelog(ctx context.Context, settings config.Changelog
 // outside GitHub (such as Plex's public downloads API). It runs before image
 // delivery, including dry runs, so a mismatched public release stops packaging.
 // Store PATs, GitHub tokens, and registry credentials are not inherited.
-func commandChangelog(ctx context.Context, settings config.Changelog, candidate Candidate, targetVersion string) (string, error) {
+func commandChangelog(ctx context.Context, settings config.Changelog, candidate, previous Candidate, targetVersion string) (string, error) {
 	if strings.TrimSpace(settings.Command) == "" {
 		return "", errors.New("changelog command is required")
 	}
@@ -155,6 +155,8 @@ func commandChangelog(ctx context.Context, settings config.Changelog, candidate 
 		"LAZYCAT_SOURCE_REF="+candidate.Ref,
 		"LAZYCAT_SOURCE_REVISION="+candidate.Revision,
 		"LAZYCAT_APPLICATION_VERSION="+targetVersion,
+		"LAZYCAT_PREVIOUS_SOURCE_REVISION="+previous.Revision,
+		"LAZYCAT_PREVIOUS_SOURCE_TAG="+previous.Tag,
 	)
 	command.Stderr = os.Stderr
 	output, err := command.Output()

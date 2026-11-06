@@ -218,6 +218,31 @@ func (runner GitRunner) discoverTag(ctx context.Context, source config.Source, e
 		return Candidate{}, fmt.Errorf("compile source exclude_regex: %w", err)
 	}
 	tags := parseTags(output)
+	if source.Select.VersionRegex != "" || source.Select.VersionTemplate != "" {
+		// Explicit opt-in for vendor tags such as RSSHub's date/build/commit
+		// tags. Their suffix identifies a stable build, not a prerelease. Reuse
+		// the same strict mapping/canonicalization as OCI selection; keep the
+		// original tag and peeled commit for immutable image lookup and state.
+		versionRegex, err := compileOptional(source.Select.VersionRegex)
+		if err != nil {
+			return Candidate{}, fmt.Errorf("compile Git source version_regex: %w", err)
+		}
+		candidates := make([]versioning.Candidate, 0, len(tags))
+		for name, revision := range tags {
+			candidates = append(candidates, versioning.Candidate{Tag: name, Digest: revision})
+		}
+		selected, err := versioning.Select(versioning.Rule{
+			Channel: versioning.ChannelStable, Sort: versioning.SortSemVer,
+			TagRegex: include, ExcludeRegex: exclude, VersionRegex: versionRegex,
+			VersionTemplate: source.Select.VersionTemplate,
+		}, candidates)
+		if err != nil {
+			return Candidate{}, fmt.Errorf("select mapped Git source tag: %w", err)
+		}
+		return Candidate{Kind: string(config.SourceKindGit), Version: selected.Version,
+			Ref: "refs/tags/" + selected.Candidate.Tag, Revision: selected.Candidate.Digest,
+			Tag: selected.Candidate.Tag}, nil
+	}
 	type rankedTag struct {
 		name     string
 		revision string

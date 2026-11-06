@@ -426,8 +426,8 @@ func validateSource(value Config) error {
 	}
 	switch source.Kind {
 	case SourceKindGit:
-		if source.Select.VersionRegex != "" || source.Select.VersionTemplate != "" || source.Select.Sort == "numeric" {
-			return errors.New("source version mapping and numeric sorting currently require an OCI source")
+		if source.Select.Sort == "numeric" {
+			return errors.New("source numeric sorting currently requires an OCI source")
 		}
 		if source.URL == "" {
 			return errors.New("Git source URL is required")
@@ -443,6 +443,14 @@ func validateSource(value Config) error {
 		case "branch", "branch-head", "default-branch", "tag", "release", "semver-tag":
 		default:
 			return fmt.Errorf("unsupported Git source strategy %q", strategy)
+		}
+		if source.Select.VersionRegex != "" || source.Select.VersionTemplate != "" {
+			if strategy != "tag" && strategy != "release" && strategy != "semver-tag" {
+				return errors.New("Git source version mapping requires a tag strategy")
+			}
+			if source.Select.Sort != "" && source.Select.Sort != "semver" || source.Select.Channel != "" && source.Select.Channel != "stable" {
+				return errors.New("Git tag version mapping requires stable SemVer ordering")
+			}
 		}
 	case SourceKindOCI:
 		if source.Image == "" {

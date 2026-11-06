@@ -37,6 +37,14 @@ func TestCommandChangelogReceivesPinnedSourceAndNoTokens(t *testing.T) {
 	}
 }
 
+func TestCommandChangelogReceivesPreviouslyProcessedSource(t *testing.T) {
+	previous := source.Candidate{Kind: "git", Revision: strings.Repeat("a", 40), Tag: "old-stable-tag"}
+	notes, err := (source.GitRunner{}).Changelog(t.Context(), config.Changelog{Mode: "command", WorkingDirectory: t.TempDir(), Command: `printf '%s %s' "$LAZYCAT_PREVIOUS_SOURCE_REVISION" "$LAZYCAT_PREVIOUS_SOURCE_TAG"`}, source.Candidate{Kind: "git", Revision: strings.Repeat("b", 40)}, previous, "1.0.0", "1.0.1")
+	if err != nil || notes != previous.Revision+" "+previous.Tag {
+		t.Fatalf("notes=%q err=%v", notes, err)
+	}
+}
+
 func TestChangelogUsesGitHubReleaseBody(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		if request.URL.Path != "/repos/usememos/memos/releases/tags/v0.31.0" {

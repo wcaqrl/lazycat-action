@@ -69,3 +69,27 @@ func contains(values []string, wanted string) bool {
 	}
 	return false
 }
+
+func TestGitRunnerMapsCalendarBuildTagsToStableVersions(t *testing.T) {
+	runner := source.GitRunner{Run: func(_ context.Context, _, _ []string) ([]byte, error) {
+		return []byte(strings.Join([]string{
+			strings.Repeat("1", 40) + "\trefs/tags/v2026.09.06-9.1111111",
+			strings.Repeat("2", 40) + "\trefs/tags/v2026.09.06-10.3333333",
+			strings.Repeat("3", 40) + "\trefs/tags/v2026.09.06-10.3333333^{}",
+			strings.Repeat("4", 40) + "\trefs/tags/v2026.09.06-11.4444444-beta",
+		}, "\n")), nil
+	}}
+	candidate, err := runner.Discover(t.Context(), config.Source{
+		Kind: config.SourceKindGit, URL: "https://github.com/DIYgod/RSSHub.git",
+		Select: config.SourceSelect{Strategy: "release", Channel: "stable",
+			TagRegex:        `^v[0-9]{4}\.[0-9]{2}\.[0-9]{2}-[0-9]+\.[a-f0-9]{7}$`,
+			VersionRegex:    `^v(?P<version>(?P<year>[0-9]{4})\.(?P<month>[0-9]{2})\.[0-9]{2}-(?P<build>[0-9]+)\.[a-f0-9]{7})$`,
+			VersionTemplate: "{year}.{month}.{build}"},
+	}, "1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if candidate.Version != "2026.9.10" || candidate.Tag != "v2026.09.06-10.3333333" || candidate.Revision != strings.Repeat("3", 40) {
+		t.Fatalf("candidate=%#v", candidate)
+	}
+}

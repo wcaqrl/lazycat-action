@@ -90,6 +90,15 @@ Private source credentials are referenced by `auth_ref` and supplied through env
 
 ## Upstream changelog for official review
 
+### Git vendor release tags (v1.9.0)
+
+Git tag sources can opt in to `source.select.version_regex` and
+`version_template` for stable non-SemVer tags; ordinary SemVer defaults stay
+unchanged. RSSHub `v2026.11.06-8596.4be79cd`, for example, maps named year/month/build
+groups to `2026.11.8596`, compares build numbers numerically, and retains the full
+upstream tag and peeled commit for immutable images. Branch sources cannot use
+this mapping. Numeric vendor sorting remains OCI-only.
+
 ### Vendor numeric versions (v1.8.0)
 
 OCI sources can explicitly select dotted numeric versions with more than three
