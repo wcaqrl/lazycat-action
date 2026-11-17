@@ -217,7 +217,7 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	sourceDiscoverer := source.Default(getenv)
 	resolver := platformauth.Resolver{}
 	storeClient := &platformImageCopier{resolver: resolver}
-	deliveryResolver := delivery.Resolver{Copier: storeClient, Inspector: registryClient, Mirrors: mirrors}
+	deliveryResolver := delivery.Resolver{Copier: storeClient, Inspector: registryClient, Mirrors: mirrors, Logger: logger}
 	imageFlow := imageflow.Flow{
 		Registry:     registryClient,
 		Deliverer:    deliveryResolver,

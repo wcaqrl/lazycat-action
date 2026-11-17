@@ -246,6 +246,14 @@ images:
 
 如果已有无需登录的可信代理，可使用 `copy_source`，例如 `ghcr.nju.edu.cn/example/server:{tag}`。Action 会同时检查原始源和代理的目标平台摘要，只有两者完全一致才从代理转存。`copy_source` 与 `staging_image` 不能同时使用。
 
+v1.10.1 起，单镜像和多镜像转存均输出镜像标识、耗时、已完成分层数及各层进度，
+每 15 秒输出一次状态；所有分层 100% 后仍等待服务端 `finished=true` 和官方镜像地址。
+每个 `delivery.mode: lazycat` 可选配置 `copy_timeout: 30m`、
+`copy_idle_timeout: 10m`。默认总上限 `1h`，无进度上限 `20m`；省略无进度设置时，
+它不会大于总上限。负数、无进度上限超过总上限或其它交付模式使用这些选项均拒绝。
+重复/重排的分层信息不重置计时，服务端最终处理阶段也受限制。
+超时会取消请求并报告镜像和最后进度，不自动重新提交转存任务；不改变镜像版本或状态锁。
+
 `command` 模式还会收到 `LAZYCAT_SOURCE_DIR`、`LAZYCAT_OUTPUT_IMAGE`、`LAZYCAT_BUILD_FINGERPRINT` 和 `LAZYCAT_TARGET_PLATFORM`。Git revision 会被 checkout 到临时目录，任务结束后删除。
 
 ## 私有 GitHub 仓库

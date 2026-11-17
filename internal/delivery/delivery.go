@@ -4,15 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/lib-x/lzc-toolkit-go/appstore"
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/imagemirror"
 	"github.com/wcaqrl/lazycat-action/internal/manifestedit"
 	"github.com/wcaqrl/lazycat-action/internal/platform"
 	"github.com/wcaqrl/lazycat-action/internal/registry"
-	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/lib-x/lzc-toolkit-go/appstore"
 )
 
 var ErrMirrorVerification = errors.New("mirror verification failed")
@@ -56,6 +57,7 @@ type Resolver struct {
 	Copier    Copier
 	Inspector ImageInspector
 	Mirrors   imagemirror.Resolver
+	Logger    *slog.Logger
 }
 
 // ResolveImage fills mirror configuration from the explicit source, the
@@ -227,14 +229,9 @@ func (resolver Resolver) Deliver(ctx context.Context, request Request) (Result, 
 			copySourceRef, _, _ = strings.Cut(copySourceRef, "@")
 			copySourceRef += "@" + sourceDigest
 		}
-		copied, err := resolver.Copier.CopyImage(ctx, appstore.CopyImageRequest{
-			Image: copySourceRef, Platform: target.Arch, OnProgress: request.OnProgress,
-		})
+		copied, err := resolver.copyImage(ctx, request, copySourceRef, target.Arch)
 		if err != nil {
-			return Result{}, fmt.Errorf("copy image to LazyCat registry: %w", err)
-		}
-		if strings.TrimSpace(copied.SourceImage) != copySourceRef || copied.Platform != target.Arch || !strings.HasPrefix(strings.TrimSpace(copied.LazyCatImage), "registry.lazycat.cloud/") || !copied.Progress.Finished {
-			return Result{}, fmt.Errorf("invalid LazyCat copy result for %q", copySourceRef)
+			return Result{}, err
 		}
 		result.RuntimeRef = copied.LazyCatImage
 		result.Copied = true

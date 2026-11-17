@@ -54,6 +54,12 @@ authenticate the GitHub Release HTTP endpoint.
 
 `delivery.copy_source` points at an anonymous proxy and accepts the same placeholders. The target-platform digest must exactly match the original source. It is mutually exclusive with `staging_image`.
 
+`lazycat` delivery supports `copy_timeout` and `copy_idle_timeout` duration strings
+since v1.10.1. Defaults: 1h total and min(20m,total) without advancing layer
+progress. Configure larger limits for large images. Repeated snapshots do not
+reset idle; finalization also remains bounded. Copy logs include periodic layer
+snapshots. Timeout cancels the request and fails without resubmitting the task.
+
 The server must be able to pull the copy source. `LZC_API_TOKEN` authenticates
 the developer API, not the upstream registry. Use the final returned official
 image reference; do not derive a personal registry namespace from the package ID.

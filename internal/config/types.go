@@ -142,11 +142,26 @@ type Image struct {
 }
 
 type Delivery struct {
-	Mode               string `yaml:"mode"`
-	ImageTemplate      string `yaml:"image_template"`
-	CopySource         string `yaml:"copy_source"`
-	StagingImage       string `yaml:"staging_image"`
-	RequireDigestMatch bool   `yaml:"require_digest_match"`
+	Mode               string        `yaml:"mode"`
+	ImageTemplate      string        `yaml:"image_template"`
+	CopySource         string        `yaml:"copy_source"`
+	StagingImage       string        `yaml:"staging_image"`
+	RequireDigestMatch bool          `yaml:"require_digest_match"`
+	CopyTimeout        time.Duration `yaml:"copy_timeout"`
+	CopyIdleTimeout    time.Duration `yaml:"copy_idle_timeout"`
+}
+
+// CopyTimeouts keeps old recipes bounded without imposing short limits on large
+// images. A smaller total automatically caps the omitted idle default.
+func (delivery Delivery) CopyTimeouts() (total, idle time.Duration) {
+	total, idle = delivery.CopyTimeout, delivery.CopyIdleTimeout
+	if total == 0 {
+		total = time.Hour
+	}
+	if idle == 0 {
+		idle = min(20*time.Minute, total)
+	}
+	return total, idle
 }
 
 type Stores struct {

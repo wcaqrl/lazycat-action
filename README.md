@@ -86,6 +86,15 @@ Set `images[].delivery.staging_image` when the official copy service cannot reli
 
 Use `images[].delivery.copy_source` when an anonymous registry proxy already serves the image. The Action verifies that its target-platform digest exactly matches the original source before copying. `copy_source` and `staging_image` are mutually exclusive.
 
+Since v1.10.1, LazyCat image copies log each image, elapsed time and per-layer
+progress, with a heartbeat every 15 seconds. Completed layers still wait for
+`finished=true` and an official image address. Optional per-image
+`delivery.copy_timeout` / `delivery.copy_idle_timeout` duration strings bound total
+copy time and time without advancing layers. Defaults are `1h` and `20m` (idle is
+capped by a smaller total); for example `30m` / `10m`. Repeated/reordered snapshots
+do not reset idle time. Limits also cover finalization and cancel pending HTTP
+requests, without resubmitting copy tasks. Other delivery modes reject these options.
+
 Private source credentials are referenced by `auth_ref` and supplied through environment variables such as `LAZYCAT_AUTH_SOURCE_SSH_KEY`; they never belong in YAML.
 
 ## Upstream changelog for official review

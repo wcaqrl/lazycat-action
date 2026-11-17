@@ -629,6 +629,15 @@ func validateOfficialApplication(application OfficialApplication) error {
 }
 
 func validateImageRule(image Image) error {
+	if image.Delivery.CopyTimeout < 0 || image.Delivery.CopyIdleTimeout < 0 {
+		return errors.New("copy_timeout and copy_idle_timeout must not be negative")
+	}
+	if image.Delivery.Mode != "lazycat" && (image.Delivery.CopyTimeout != 0 || image.Delivery.CopyIdleTimeout != 0) {
+		return errors.New("copy timeouts require lazycat delivery")
+	}
+	if total, idle := image.Delivery.CopyTimeouts(); idle > total {
+		return errors.New("copy_idle_timeout must not exceed copy_timeout")
+	}
 	switch image.Channel {
 	case "stable", "beta", "date":
 		if image.Sort != "semver" && image.Sort != "updated" {
