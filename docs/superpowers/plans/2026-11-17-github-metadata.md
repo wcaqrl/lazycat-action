@@ -32,9 +32,9 @@ clients/python/github_api.py and their focused regression tests.
 **Interfaces:** Client.Get(ctx,path) returns a bounded response; Gateway exposes
 Endpoint{URL,Session}; stage requests carry that endpoint, never the upstream token.
 
-- [ ] RED tests for scoped reads, authentication, redirects, throttling, lifecycle
+- [x] RED tests for scoped reads, authentication, redirects, throttling, lifecycle
   and all three script stages; implement and verify GREEN.
-- [ ] Reuse the reader for built-in GitHub Release changelogs; run the full Go suite,
+- [x] Reuse the reader for built-in GitHub Release changelogs; run the full Go suite,
   race checks and Python-client contract tests.
 
 ### Task 2: Adapter adoption and compatibility
@@ -44,15 +44,15 @@ Endpoint{URL,Session}; stage requests carry that endpoint, never the upstream to
 **Interfaces:** github_json(url) uses the managed endpoint; Git resolves tag SHAs.
 Selected Release metadata remains mandatory, and source/digest guards remain intact.
 
-- [ ] RED tests for Git tag peeling, first-run baseline, authenticated broker reads
+- [x] RED tests for Git tag peeling, first-run baseline, authenticated broker reads
   and lack of credentials in CI; implement and verify all existing adapter tests.
-- [ ] Verify real read-only checks and unaffected adapters' config/modes.
+- [x] Verify real read-only checks and unaffected adapters' config/modes.
 
 ### Task 3: Version-coherent release and rollout
 
 **Files:** action.yml, reusable/release workflows, metadata tests and docs.
 
-- [ ] Test exact internal pins and prerelease promotion exclusion; implement.
-- [ ] Fresh-context review, resolve material findings and rerun checks.
-- [ ] Commit/push and release v1.10.0-rc.1; run both adapter read-only checks against it.
+- [x] Test exact internal pins and prerelease promotion exclusion; implement.
+- [x] Fresh-context review, resolve material findings and rerun checks.
+- [x] Commit/push and release v1.10.0-rc.1; run both adapter read-only checks against it.
 - [ ] Release stable v1.10.0 after validation, promote v1 and restore adapter @v1.
