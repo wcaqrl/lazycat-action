@@ -144,7 +144,7 @@ func commandChangelog(ctx context.Context, settings config.Changelog, candidate,
 	}
 	command := exec.CommandContext(ctx, "/bin/sh", "-eu", "-c", settings.Command)
 	command.Dir = settings.WorkingDirectory
-	for _, key := range []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
+	for _, key := range []string{"PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "GITHUB_ACTIONS", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR"} {
 		if value, ok := os.LookupEnv(key); ok {
 			command.Env = append(command.Env, key+"="+value)
 		}

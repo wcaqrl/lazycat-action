@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -92,7 +93,34 @@ func TestQuotaResetWaitIsBoundedAndErrorIsSafe(t *testing.T) {
 	if !errors.As(err, &apiError) || apiError.Status != 429 || apiError.Kind != "rate-limit" || count != 1 {
 		t.Fatalf("count=%d err=%v", count, err)
 	}
-	if err.Error() == "private-token" {
+	if strings.Contains(err.Error(), "private-token") {
 		t.Fatal("token leaked")
+	}
+}
+
+func TestEncodedSlashTagRetainsScopeAndRejectsTraversal(t *testing.T) {
+	for _, path := range []string{"/repos/acme/app/releases/tags/component%2Fv1.2.3", "/repos/acme/app/git/ref/tags/component%2Fv1.2.3"} {
+		if repo, err := metadataPath(path); err != nil || repo != "acme/app" {
+			t.Errorf("path=%s repo=%s err=%v", path, repo, err)
+		}
+	}
+	for _, path := range []string{"/repos/acme%2Fevil/app/releases/latest", "/repos/acme/app/releases/tags/component%2F..%2Fv1.2.3"} {
+		if _, err := metadataPath(path); err == nil {
+			t.Errorf("accepted traversal %s", path)
+		}
+	}
+}
+
+func TestSecondaryLimitWithoutWaitHeaderDoesNotRetryWithinBudget(t *testing.T) {
+	var count atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		count.Add(1)
+		w.WriteHeader(403)
+		w.Write([]byte(`{"message":"You have exceeded a secondary rate limit"}`))
+	}))
+	defer server.Close()
+	_, err := (Client{BaseURL: server.URL, Sleep: func(context.Context, time.Duration) error { return nil }}).Get(t.Context(), "/repos/acme/app/releases/latest")
+	if err == nil || count.Load() != 1 {
+		t.Fatalf("count=%d err=%v", count.Load(), err)
 	}
 }

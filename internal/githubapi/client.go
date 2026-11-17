@@ -124,6 +124,9 @@ func (c Client) Get(ctx context.Context, path string) (*Response, error) {
 		delay, explicit := retryDelay(response.Header, time.Now())
 		if !explicit {
 			delay = time.Second << attempt
+			if limited {
+				delay = time.Minute
+			}
 		}
 		failure.RetryAfter = delay
 		if attempt+1 == attempts || delay > budget {
@@ -167,16 +170,27 @@ func wait(ctx context.Context, delay time.Duration) error {
 
 func metadataPath(path string) (string, error) {
 	u, err := url.ParseRequestURI(path)
-	if err != nil || !strings.HasPrefix(path, "/") || u.IsAbs() || u.Host != "" || u.RawPath != "" || strings.Contains(u.Path, "//") {
+	if err != nil || !strings.HasPrefix(path, "/") || u.IsAbs() || u.Host != "" || strings.Contains(u.EscapedPath(), "//") {
 		return "", fmt.Errorf("unsupported GitHub metadata path")
 	}
-	parts := strings.Split(strings.TrimPrefix(u.Path, "/"), "/")
+	// Split before decoding so an encoded slash stays inside the final tag
+	// parameter. Repository and route components are still validated separately.
+	parts := strings.Split(strings.TrimPrefix(u.EscapedPath(), "/"), "/")
+	for index, part := range parts {
+		decoded, err := url.PathUnescape(part)
+		if err != nil {
+			return "", fmt.Errorf("invalid GitHub metadata encoding")
+		}
+		parts[index] = decoded
+	}
 	if len(parts) < 4 || parts[0] != "repos" || !repositoryPart(parts[1]) || !repositoryPart(parts[2]) {
 		return "", fmt.Errorf("unsupported GitHub metadata repository")
 	}
 	for _, part := range parts {
-		if part == "." || part == ".." || part == "" {
-			return "", fmt.Errorf("unsupported GitHub metadata path")
+		for _, component := range strings.Split(part, "/") {
+			if component == "." || component == ".." || component == "" || strings.ContainsAny(component, "\\\r\n\x00") {
+				return "", fmt.Errorf("unsupported GitHub metadata path")
+			}
 		}
 	}
 	allowed := false

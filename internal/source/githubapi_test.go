@@ -37,3 +37,12 @@ func TestChangelogUsesScopedGitHubReaderWithoutReceivingTokens(t *testing.T) {
 		t.Fatalf("got=%s err=%v", got, err)
 	}
 }
+
+func TestChangelogPreservesActionsMarkerWithoutForwardingToken(t *testing.T) {
+	t.Setenv("GITHUB_ACTIONS", "true")
+	t.Setenv("GITHUB_TOKEN", "must-not-forward")
+	settings := config.Changelog{Mode: "command", WorkingDirectory: t.TempDir(), Command: `test -z "${GITHUB_TOKEN:-}"; test "${GITHUB_ACTIONS:-}" = true; printf 'CI marker retained'`}
+	if _, err := (source.GitRunner{}).Changelog(t.Context(), settings, source.Candidate{Kind: "git", Tag: "v1.2.3"}, source.Candidate{}, "1.0.0", "1.2.3"); err != nil {
+		t.Fatal(err)
+	}
+}

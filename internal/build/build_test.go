@@ -12,12 +12,12 @@ import (
 	"strings"
 	"testing"
 
-	actionbuild "github.com/wcaqrl/lazycat-action/internal/build"
-	"github.com/wcaqrl/lazycat-action/internal/platform"
-	"github.com/wcaqrl/lazycat-action/internal/project"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	toolkitbuild "github.com/lib-x/lzc-toolkit-go/build"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
+	actionbuild "github.com/wcaqrl/lazycat-action/internal/build"
+	"github.com/wcaqrl/lazycat-action/internal/platform"
+	"github.com/wcaqrl/lazycat-action/internal/project"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -126,6 +126,27 @@ func TestBuilderBuildsVerifiesAndHashesLPKForLinuxAMD64(t *testing.T) {
 	}
 	if effective.Manifest.Version != "1.2.3" {
 		t.Fatalf("version=%q", effective.Manifest.Version)
+	}
+}
+
+func TestBuilderFiltersCredentialsBeforeConfigExpansion(t *testing.T) {
+	secrets := map[string]string{"GITHUB_TOKEN": "github-secret", "LZC_API_TOKEN": "store-secret", "LAZYCAT_AUTH_SOURCE_TOKEN": "source-secret"}
+	for key, value := range secrets {
+		t.Setenv(key, value)
+	}
+	info := templatedFixtureProject(t)
+	config := "manifest: ./lzc-manifest.yml\ncontentdir: ./content\nenvs:\n  - RENAMED=$GITHUB_TOKEN\nbuildscript: |\n  printf '%s' '$GITHUB_TOKEN $LZC_API_TOKEN $LAZYCAT_AUTH_SOURCE_TOKEN'\n"
+	if err := os.WriteFile(info.BuildConfig, []byte(config), 0600); err != nil {
+		t.Fatal(err)
+	}
+	runner := &recordingRunner{}
+	if _, err := (actionbuild.Builder{}).Build(t.Context(), actionbuild.Request{Project: info, Version: info.Version, RunBuildScript: true, Runner: runner}); err != nil {
+		t.Fatal(err)
+	}
+	for key, value := range secrets {
+		if strings.Contains(runner.command.Script, value) || runner.command.Env[key] != "" || runner.command.Env["RENAMED"] == value {
+			t.Errorf("%s escaped packaging credential filter", key)
+		}
 	}
 }
 

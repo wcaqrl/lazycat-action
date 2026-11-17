@@ -98,3 +98,33 @@ func TestPrereleaseNeverPromotesFloatingV1(t *testing.T) {
 		t.Fatal("stable release did not promote the tested commit")
 	}
 }
+
+func TestAdapterStagesDoNotPersistCheckoutCredentials(t *testing.T) {
+	raw, err := os.ReadFile("../../.github/workflows/lazycat.yml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var workflow struct {
+		Jobs map[string]struct {
+			Steps []struct {
+				Name string            `yaml:"name"`
+				With map[string]string `yaml:"with"`
+				Env  map[string]string `yaml:"env"`
+				Run  string            `yaml:"run"`
+			} `yaml:"steps"`
+		} `yaml:"jobs"`
+	}
+	if err := yaml.Unmarshal(raw, &workflow); err != nil {
+		t.Fatal(err)
+	}
+	for _, job := range workflow.Jobs {
+		for _, step := range job.Steps {
+			if step.Name == "Checkout pipeline project" && step.With["persist-credentials"] != "false" {
+				t.Error("checkout persists credentials during adapter scripts")
+			}
+			if step.Name == "Commit packaged official update" && (step.Env["GITHUB_TOKEN"] == "" || !strings.Contains(step.Run, "extraheader")) {
+				t.Error("trusted state push lacks explicit auth")
+			}
+		}
+	}
+}

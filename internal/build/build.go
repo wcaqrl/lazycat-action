@@ -114,7 +114,7 @@ type protectedRunner struct {
 func (runner protectedRunner) Run(ctx context.Context, command toolkitbuild.Command) error {
 	environment := make(map[string]string, len(command.Env))
 	for key, value := range command.Env {
-		if _, protected := protectedBuildEnvironment[key]; protected {
+		if protectedEnvironmentKey(key) {
 			continue
 		}
 		environment[key] = value
@@ -124,6 +124,11 @@ func (runner protectedRunner) Run(ctx context.Context, command toolkitbuild.Comm
 		command.Env[key] = value
 	}
 	return runner.base.Run(ctx, command)
+}
+
+func protectedEnvironmentKey(key string) bool {
+	_, protected := protectedBuildEnvironment[key]
+	return protected || strings.HasPrefix(key, "LAZYCAT_AUTH_")
 }
 
 func (builder Builder) Build(ctx context.Context, request Request) (result Result, resultErr error) {
@@ -183,6 +188,19 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 		"LAZYCAT_TARGET_PLATFORM": target.Platform(),
 		"SOURCE_DATE_EPOCH":       strconv.FormatInt(request.SourceDateEpoch, 10),
 	}
+	// The toolkit expands the build YAML before invoking Runner. Filtering only
+	// the final command would let $GITHUB_TOKEN leak through scripts or aliases.
+	for _, entry := range os.Environ() {
+		key, value, found := strings.Cut(entry, "=")
+		if found && !protectedEnvironmentKey(key) {
+			if _, explicit := environment[key]; !explicit {
+				environment[key] = value
+			}
+		}
+	}
+	for key, value := range githubapi.FromContext(ctx).Environment() {
+		environment[key] = value
+	}
 	runner := request.Runner
 	if runner == nil {
 		runner = streamingShellRunner{stdout: builder.stdout(), stderr: builder.stderr()}
@@ -196,7 +214,7 @@ func (builder Builder) Build(ctx context.Context, request Request) (result Resul
 		Root:               request.Project.Root,
 		ConfigFile:         request.Project.BuildConfig,
 		Environment:        environment,
-		InheritEnvironment: true,
+		InheritEnvironment: false,
 		RunBuildScript:     request.RunBuildScript,
 		Runner:             protectedRunner{base: runner},
 	})

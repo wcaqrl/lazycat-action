@@ -718,7 +718,8 @@ func TestErrorDoesNotExposeExpandedBuildConfigSecret(t *testing.T) {
 	t.Setenv("GITHUB_TOKEN", secret)
 	root := t.TempDir()
 	for name, contents := range map[string]string{
-		"lzc-build.yml":    "manifest: ./lzc-manifest.yml\nenvs: ${GITHUB_TOKEN}\n",
+		// Invalid even after protected values are stripped before expansion.
+		"lzc-build.yml":    "manifest: ./lzc-manifest.yml\nenvs: { invalid: ${GITHUB_TOKEN} }\n",
 		"package.yml":      "package: cloud.lazycat.action.secret-fixture\nversion: 1.2.3\nname: Secret Fixture\n",
 		"lzc-manifest.yml": "application:\n  subdomain: secret-fixture\n",
 	} {
