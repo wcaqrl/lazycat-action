@@ -8,9 +8,9 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/lib-x/lzc-toolkit-go/appstore"
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/delivery"
 	"github.com/wcaqrl/lazycat-action/internal/manifestedit"
@@ -18,7 +18,6 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/project"
 	"github.com/wcaqrl/lazycat-action/internal/registry"
 	"github.com/wcaqrl/lazycat-action/internal/versioning"
-	"github.com/lib-x/lzc-toolkit-go/appstore"
 )
 
 var (
@@ -232,26 +231,6 @@ func (flow Flow) Check(ctx context.Context, request Request) (Result, error) {
 		}
 		if request.OnProgress != nil {
 			deliveryRequest.OnProgress = func(progress appstore.CopyProgress) { request.OnProgress(image.ID, progress) }
-		}
-		var progressMu sync.Mutex
-		layerProgress := map[string]int{}
-		previousProgress := deliveryRequest.OnProgress
-		deliveryRequest.OnProgress = func(progress appstore.CopyProgress) {
-			if previousProgress != nil {
-				previousProgress(progress)
-			}
-			progressMu.Lock()
-			defer progressMu.Unlock()
-			for _, layer := range progress.Layers {
-				last := layerProgress[layer.Hash]
-				if layer.Progress == 100 || layer.Progress >= last+25 {
-					layerProgress[layer.Hash] = layer.Progress
-					logger.Info("Docker image layer progress", "image_id", image.ID, "layer", layer.Hash, "progress", layer.Progress)
-				}
-			}
-			if progress.Finished {
-				logger.Info("Docker image copy stream completed", "image_id", image.ID)
-			}
 		}
 		logDeliveryStarted(logger, image, sourceRef)
 

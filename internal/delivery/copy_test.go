@@ -3,11 +3,13 @@ package delivery_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -156,5 +158,68 @@ func TestFinishedLayersWithoutFinishedFlagRemainBounded(t *testing.T) {
 	_, err := resolver.Deliver(ctx, copyRequest(800*time.Millisecond, 80*time.Millisecond))
 	if err == nil || !strings.Contains(err.Error(), "no-progress timeout") {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestFinishedCallbackCannotTurnCancellationOrExpiredDeadlineIntoSuccess(t *testing.T) {
+	for _, kind := range []string{"parent", "total"} {
+		t.Run(kind, func(t *testing.T) {
+			resolver, output, _ := copyServer(t, func(w http.ResponseWriter, r *http.Request, n int) { fmt.Fprint(w, copiedImage) })
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			request := copyRequest(80*time.Millisecond, 80*time.Millisecond)
+			request.OnProgress = func(p appstore.CopyProgress) {
+				if p.Finished {
+					if kind == "parent" {
+						cancel()
+					} else {
+						time.Sleep(130 * time.Millisecond)
+					}
+				}
+			}
+			_, err := resolver.Deliver(ctx, request)
+			if err == nil {
+				t.Fatal("canceled copy reported success")
+			}
+			if kind == "parent" && !errors.Is(err, context.Canceled) {
+				t.Fatalf("err=%v", err)
+			}
+			if kind == "total" && !strings.Contains(err.Error(), "total timeout") {
+				t.Fatalf("err=%v", err)
+			}
+			if strings.Contains(output.String(), "copy completed") {
+				t.Fatalf("false success log: %s", output.String())
+			}
+		})
+	}
+}
+
+type concurrentCopier struct{}
+
+func (concurrentCopier) CopyImage(ctx context.Context, r appstore.CopyImageRequest) (appstore.CopyImageResult, error) {
+	var wg sync.WaitGroup
+	for i := range 12 {
+		wg.Go(func() {
+			r.OnProgress(appstore.CopyProgress{Layers: []appstore.LayerProgress{{Hash: fmt.Sprint(i), Progress: 50}}})
+		})
+	}
+	wg.Wait()
+	r.OnProgress(appstore.CopyProgress{Finished: true})
+	return appstore.CopyImageResult{SourceImage: r.Image, Platform: r.Platform, LazyCatImage: "registry.lazycat.cloud/acme/web:v1", Progress: appstore.CopyProgress{Finished: true}}, nil
+}
+func TestCopySerializesCallerProgressCallbacks(t *testing.T) {
+	var active, overlaps, calls atomic.Int64
+	r := copyRequest(time.Second, time.Second)
+	r.OnProgress = func(appstore.CopyProgress) {
+		if active.Add(1) != 1 {
+			overlaps.Add(1)
+		}
+		time.Sleep(time.Millisecond)
+		active.Add(-1)
+		calls.Add(1)
+	}
+	_, err := (delivery.Resolver{Copier: concurrentCopier{}}).Deliver(t.Context(), r)
+	if err != nil || overlaps.Load() != 0 || calls.Load() != 13 {
+		t.Fatalf("overlaps=%d calls=%d err=%v", overlaps.Load(), calls.Load(), err)
 	}
 }

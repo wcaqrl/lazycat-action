@@ -11,9 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/lib-x/lzc-toolkit-go/appstore"
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/delivery"
 	"github.com/wcaqrl/lazycat-action/internal/imageflow"
@@ -23,7 +25,6 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/project"
 	"github.com/wcaqrl/lazycat-action/internal/registry"
 	"github.com/wcaqrl/lazycat-action/internal/versioning"
-	"github.com/lib-x/lzc-toolkit-go/appstore"
 )
 
 func TestFlowChecksAllImagesAndUpdatesOnlyChangedTarget(t *testing.T) {
@@ -505,12 +506,42 @@ func TestFlowHandlesConcurrentProgressCallbacks(t *testing.T) {
 	cfg := imageConfig()
 	cfg.Images = cfg.Images[1:]
 	cfg.Images[0].Delivery.Mode = "lazycat"
-	result, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.0.0"}})
+	var callbacks atomic.Int64
+	result, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.0.0"}, OnProgress: func(string, appstore.CopyProgress) { callbacks.Add(1) }})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.Changed || len(result.Images) != 1 || !result.Images[0].Copied {
 		t.Fatalf("result=%#v", result)
+	}
+	if callbacks.Load() != 41 {
+		t.Fatalf("callbacks=%d", callbacks.Load())
+	}
+}
+
+type terminalErrorDeliverer struct{}
+
+func (terminalErrorDeliverer) Deliver(ctx context.Context, r delivery.Request) (delivery.Result, error) {
+	if r.OnProgress != nil {
+		r.OnProgress(appstore.CopyProgress{Finished: true})
+	}
+	return delivery.Result{}, errors.New("server-side copy failed")
+}
+func TestFlowDoesNotAnnounceCompletionFromAnUnvalidatedProgressFlag(t *testing.T) {
+	var logs bytes.Buffer
+	flow := imageflow.Flow{Registry: &fakeRegistry{bySource: map[string][]versioning.Candidate{"ghcr.io/acme/web": {{Tag: "v2.0.0", Digest: digest("w"), Created: created(2)}}}}, Deliverer: terminalErrorDeliverer{}, Logger: slog.New(slog.NewTextHandler(&logs, nil)),
+		ReadManifest: func(string, []manifestedit.Target) ([]manifestedit.Current, error) {
+			return []manifestedit.Current{{ID: "web", RuntimeRef: "registry.lazycat.cloud/acme/web:v1", UpstreamRef: "ghcr.io/acme/web:v1.0.0"}}, nil
+		}}
+	cfg := imageConfig()
+	cfg.Images = cfg.Images[1:]
+	cfg.Images[0].Delivery.Mode = "lazycat"
+	_, err := flow.Check(t.Context(), imageflow.Request{Config: cfg, Project: project.Info{ManifestFile: "manifest.yml", Version: "1.0.0"}})
+	if err == nil {
+		t.Fatal("failed copy was accepted")
+	}
+	if strings.Contains(logs.String(), "copy stream completed") {
+		t.Fatalf("false success: %s", logs.String())
 	}
 }
 

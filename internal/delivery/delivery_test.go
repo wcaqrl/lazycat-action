@@ -6,13 +6,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lib-x/lzc-toolkit-go/appstore"
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/delivery"
 	"github.com/wcaqrl/lazycat-action/internal/imagemirror"
 	"github.com/wcaqrl/lazycat-action/internal/manifestedit"
 	"github.com/wcaqrl/lazycat-action/internal/platform"
 	"github.com/wcaqrl/lazycat-action/internal/registry"
-	"github.com/lib-x/lzc-toolkit-go/appstore"
 )
 
 func TestLazyCatDeliveryCopiesAMD64AndReturnsCopyResult(t *testing.T) {
@@ -222,6 +222,7 @@ func TestLazyCatDeliveryRejectsMismatchedCopyResult(t *testing.T) {
 		{name: "source", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/other:v1", Platform: "amd64", LazyCatImage: "registry.lazycat.cloud/acme/web:v1", Progress: appstore.CopyProgress{Finished: true}}},
 		{name: "platform", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "arm64", LazyCatImage: "registry.lazycat.cloud/acme/web:v1", Progress: appstore.CopyProgress{Finished: true}}},
 		{name: "registry", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "amd64", LazyCatImage: "ghcr.io/acme/web:v1", Progress: appstore.CopyProgress{Finished: true}}},
+		{name: "empty_repository", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "amd64", LazyCatImage: "registry.lazycat.cloud/", Progress: appstore.CopyProgress{Finished: true}}},
 		{name: "unfinished", result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "amd64", LazyCatImage: "registry.lazycat.cloud/acme/web:v1"}},
 	}
 	for _, test := range tests {
@@ -235,6 +236,14 @@ func TestLazyCatDeliveryRejectsMismatchedCopyResult(t *testing.T) {
 				t.Fatalf("err=%v", err)
 			}
 		})
+	}
+}
+
+func TestLazyCatDeliveryReturnsNormalizedValidatedReference(t *testing.T) {
+	copier := &fakeCopier{result: appstore.CopyImageResult{SourceImage: "ghcr.io/acme/web:v1", Platform: "amd64", LazyCatImage: "  registry.lazycat.cloud/acme/web:v1\n", Progress: appstore.CopyProgress{Finished: true}}}
+	result, err := (delivery.Resolver{Copier: copier}).Deliver(t.Context(), delivery.Request{Image: config.Image{ID: "web", Delivery: config.Delivery{Mode: "lazycat"}}, SourceRef: "ghcr.io/acme/web:v1"})
+	if err != nil || result.RuntimeRef != "registry.lazycat.cloud/acme/web:v1" {
+		t.Fatalf("result=%+v err=%v", result, err)
 	}
 }
 

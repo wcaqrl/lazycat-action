@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	"github.com/lib-x/lzc-toolkit-go/appstore"
 )
 
@@ -116,9 +117,15 @@ func (r Resolver) copyImage(ctx context.Context, request Request, source, platfo
 		timer := time.NewTimer(idle)
 		defer timer.Stop()
 		reset := func() bool {
-			_, stalled, _, _, _, _ := progress.snapshot()
+			elapsed, stalled, _, _, _, _ := progress.snapshot()
 			if stalled >= idle {
-				cancel(errCopyIdleTimeout)
+				// When both deadlines expire together (the omitted idle limit
+				// can equal total), report the total cap deterministically.
+				if elapsed >= total {
+					cancel(errCopyTotalTimeout)
+				} else {
+					cancel(errCopyIdleTimeout)
+				}
 				return false
 			}
 			timer.Reset(idle - stalled)
@@ -144,9 +151,12 @@ func (r Resolver) copyImage(ctx context.Context, request Request, source, platfo
 		}
 	}()
 	defer func() { close(stop); <-done }()
+	var callbackMu sync.Mutex
 	result, err := r.Copier.CopyImage(copyCtx, appstore.CopyImageRequest{
 		Image: source, Platform: platform, Timeout: total,
 		OnProgress: func(update appstore.CopyProgress) {
+			callbackMu.Lock()
+			defer callbackMu.Unlock()
 			advanced, phaseChanged := progress.observe(update)
 			if advanced {
 				select {
@@ -162,8 +172,8 @@ func (r Resolver) copyImage(ctx context.Context, request Request, source, platfo
 			}
 		},
 	})
-	if err != nil {
-		cause := context.Cause(copyCtx)
+	cause := context.Cause(copyCtx)
+	if err != nil || cause != nil {
 		if errors.Is(cause, errCopyTotalTimeout) || errors.Is(cause, errCopyIdleTimeout) {
 			elapsed, _, completed, count, _, _ := progress.snapshot()
 			limit := total
@@ -171,14 +181,18 @@ func (r Resolver) copyImage(ctx context.Context, request Request, source, platfo
 				limit = idle
 			}
 			err = &CopyWaitError{ImageID: request.Image.ID, Kind: cause, Limit: limit, Elapsed: elapsed, Completed: completed, Total: count}
+		} else if err == nil {
+			err = copyCtx.Err()
 		}
 		logProgress("Docker image copy failed")
 		return appstore.CopyImageResult{}, fmt.Errorf("copy image to LazyCat registry: %w", err)
 	}
-	if strings.TrimSpace(result.SourceImage) != source || result.Platform != platform || !strings.HasPrefix(strings.TrimSpace(result.LazyCatImage), "registry.lazycat.cloud/") || !result.Progress.Finished {
+	ref, parseErr := name.ParseReference(strings.TrimSpace(result.LazyCatImage), name.WeakValidation)
+	if strings.TrimSpace(result.SourceImage) != source || result.Platform != platform || parseErr != nil || ref.Context().RegistryStr() != "registry.lazycat.cloud" || !result.Progress.Finished {
 		logProgress("Docker image copy failed")
 		return appstore.CopyImageResult{}, fmt.Errorf("invalid LazyCat copy result for %q", source)
 	}
+	result.LazyCatImage = ref.Name()
 	progress.observe(result.Progress)
 	logProgress("Docker image copy completed", "image", result.LazyCatImage)
 	return result, nil
