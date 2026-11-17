@@ -27,20 +27,32 @@
 
 **Files:** affine-adapter/scripts/registry.py, tests/test_registry.py.
 **Interface:** verify_local(image,local) retains its return/exception contract.
-- [ ] RED: table tests accept missing/null/empty User/WorkingDir, reject real changes/types and identity/layer mismatches.
-- [ ] GREEN: normalize only these fields; run all Python/Node tests and real API 1.48/1.54 image checks.
-- [ ] Commit the tested adapter change.
+- [x] RED: table tests accept missing/null/empty User/WorkingDir, reject real changes/types and identity/layer mismatches.
+- [x] GREEN: normalize only these fields; run all Python/Node tests and real API 1.48/1.54 image checks.
+- [x] Commit the tested adapter change.
 
 ### Task 2: Copy limits and centralized progress
 
 **Files:** internal/config/{types,load}.go, internal/delivery/{delivery,copy}.go, corresponding tests, internal/action/action.go and docs.
 **Interface:** optional Delivery.CopyTimeout/CopyIdleTimeout; Resolver.Logger; copy helper uses the existing Copier.CopyImage context/callback.
-- [ ] RED: config/default validation and real httptest SDK copies cover progress, finalization, total/idle timeout, repeated polls, caller callbacks/cancellation and cleanup.
-- [ ] GREEN: add central monitor, wire resolver logger, document and configure AFFiNE limits.
-- [ ] Run full Go race/vet, bootstrap, workflow and shell checks, existing nine config loads and adapter regressions; commit.
+- [x] RED: config/default validation and real httptest SDK copies cover progress, finalization, total/idle timeout, repeated polls, caller callbacks/cancellation and cleanup.
+- [x] GREEN: add central monitor, wire resolver logger, document and configure AFFiNE limits.
+- [x] Run full Go race/vet, bootstrap, workflow and shell checks, existing nine config loads and adapter regressions; commit.
 
 ### Task 3: Review and rollout
 
-- [ ] Fresh-context review; fix material findings RED→GREEN and rerun affected suites.
-- [ ] Release coherent v1.10.1, verify CI/release then floating v1; push fixed adapter.
-- [ ] Start a new hosted AFFiNE runtime check, then real run; verify LPK, state, review and independent release outcomes.
+- [x] Fresh-context review; fix material findings RED→GREEN and rerun affected suites.
+- [x] Release coherent v1.10.1, verify CI/release then floating v1; push fixed adapter.
+- [x] Start a new hosted AFFiNE runtime check, then real run; verify LPK, state, review and independent release outcomes.
+
+## Verification record
+
+- Full Go race/vet, Python client5, bootstrap, Node publisher5, actionlint/ShellCheck passed; nine existing adapter configs load.
+- AFFiNE27 Python/3 Node tests and all three real pinned images at API1.48/1.54 pass.
+- Hosted runtime verification: https://github.com/wcaqrl/affine-adapter/actions/runs/44009542621
+- Core CI: https://github.com/wcaqrl/lazycat-action/actions/runs/44010578341
+- v1.10.1 release: https://github.com/wcaqrl/lazycat-action/actions/runs/44010649733
+- v1/v1.10.1 resolve to 9117661aad84bec5827efecc448aa85bdf2cfee4.
+- Full official-image acceptance, packaging, store submission and independent GitHub Release succeeded: https://github.com/wcaqrl/affine-adapter/actions/runs/44010886589
+- Store review23359 (waiting), package cloud.lazycat.app.affine, version0.27.4, LPK49152 bytes, SHA256e9ba3458988b720cefddd49c01900b2f78474ca67040b9f01edcc94eec59e80a.
+- Independent review issues resolved RED→GREEN: terminal cancellation, duplicate/premature legacy logging, reference parsing/normalization, serialized concurrent callbacks.
