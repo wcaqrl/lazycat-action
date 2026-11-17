@@ -55,4 +55,22 @@ Selected Release metadata remains mandatory, and source/digest guards remain int
 - [x] Test exact internal pins and prerelease promotion exclusion; implement.
 - [x] Fresh-context review, resolve material findings and rerun checks.
 - [x] Commit/push and release v1.10.0-rc.1; run both adapter read-only checks against it.
-- [ ] Release stable v1.10.0 after validation, promote v1 and restore adapter @v1.
+- [x] Release stable v1.10.0 after validation, promote v1 and restore adapter @v1.
+
+## Verification record
+
+- Core full race/vet, workflow/ShellCheck/bootstrap checks and Python/Node tests passed.
+  All nine existing adapter configs still load without schema changes.
+- Candidate [CI](https://github.com/wcaqrl/lazycat-action/actions/runs/44003290325),
+  [release](https://github.com/wcaqrl/lazycat-action/actions/runs/44003345399),
+  [AFFiNE](https://github.com/wcaqrl/affine-adapter/actions/runs/44003686412) and
+  [RSSHub](https://github.com/wcaqrl/rsshub-adapter/actions/runs/44003777380) passed.
+  Both adapter runs were read-only and skipped store submission.
+- Stable [CI](https://github.com/wcaqrl/lazycat-action/actions/runs/44004001865)
+  and [release](https://github.com/wcaqrl/lazycat-action/actions/runs/44004020473)
+  passed. `v1` and `v1.10.0` resolve to `8e671f62ff7d5bb083307bf0c85be3819168a239`.
+- Fresh-context review findings were fixed with RED→GREEN regressions for config
+  expansion secrets, checkout credentials, moved RSSHub tags, slash tags, secondary
+  limits and the Actions marker. Interrupted body-read retries remain deferred.
+- RSSHub remote publication/state commits were preserved when integrating the fix.
+  No manual app-store review or repeated container runtime acceptance was triggered.
