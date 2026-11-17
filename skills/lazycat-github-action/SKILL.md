@@ -53,6 +53,13 @@ Read [configuration](references/configuration.md) for private-source `auth_ref`,
 staging, numeric versions and preparation outputs. Private Git credentials use
 Secrets, not YAML values. A store PAT is not a Git or Docker login.
 
+For GitHub release/tag metadata in custom scripts, vendor
+`clients/python/github_api.py` from the executor repository (v1.10.0+).
+It uses the executor's scoped loopback reader; do not weaken command credential
+filters or forward `GITHUB_TOKEN` to builds. Standalone trusted workflow probes
+can explicitly use `${{ github.token }}`. See `docs/github-metadata.zh-CN.md`
+in the executor for allowed endpoints, bounded retries and limitations.
+
 ## Validate and publish
 
 1. Validate YAML and image/service bindings. Inspect the packaged metadata,

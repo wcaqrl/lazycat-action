@@ -11,15 +11,16 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wcaqrl/lazycat-action/internal/diagnostic"
-	"github.com/wcaqrl/lazycat-action/internal/lpkcheck"
-	"github.com/wcaqrl/lazycat-action/internal/platform"
-	"github.com/wcaqrl/lazycat-action/internal/project"
 	lpkgo "github.com/lib-x/lzc-toolkit-go"
 	toolkitbuild "github.com/lib-x/lzc-toolkit-go/build"
 	"github.com/lib-x/lzc-toolkit-go/lint"
 	"github.com/lib-x/lzc-toolkit-go/lpk"
 	"github.com/lib-x/lzc-toolkit-go/manifest"
+	"github.com/wcaqrl/lazycat-action/internal/diagnostic"
+	"github.com/wcaqrl/lazycat-action/internal/githubapi"
+	"github.com/wcaqrl/lazycat-action/internal/lpkcheck"
+	"github.com/wcaqrl/lazycat-action/internal/platform"
+	"github.com/wcaqrl/lazycat-action/internal/project"
 )
 
 type Request struct {
@@ -77,6 +78,7 @@ func (diagnostic publicBuildDiagnostic) PublicErrorPath() string {
 }
 
 var protectedBuildEnvironment = map[string]struct{}{
+	githubapi.EnvURL: {}, githubapi.EnvSession: {},
 	"ACTIONS_CACHE_URL":              {},
 	"ACTIONS_ID_TOKEN_REQUEST_TOKEN": {},
 	"ACTIONS_ID_TOKEN_REQUEST_URL":   {},
@@ -118,6 +120,9 @@ func (runner protectedRunner) Run(ctx context.Context, command toolkitbuild.Comm
 		environment[key] = value
 	}
 	command.Env = environment
+	for key, value := range githubapi.FromContext(ctx).Environment() {
+		command.Env[key] = value
+	}
 	return runner.base.Run(ctx, command)
 }
 

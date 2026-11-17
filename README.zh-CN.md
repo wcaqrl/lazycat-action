@@ -80,6 +80,11 @@ changelog:
 
 此模式要求选中的稳定标签已经发布对应 GitHub Release。Release 不存在、仍是草稿或预发布时，流程会在镜像转存之前停止。
 
+v1.10.0 起，自定义更新日志、镜像准备和打包脚本可使用统一的 GitHub
+元数据客户端。执行器保管自动 `GITHUB_TOKEN`，脚本通过受限的本机只读通道
+读取当前上游仓库，内置 Release 读取也共享有界限流重试。无需新增 Secret，
+旧配置继续可用；接入方法和边界见 [GitHub 元数据读取](docs/github-metadata.zh-CN.md)。
+
 只读 `dry-run` 的结果会显示 `changelog`，正式运行会把它写入锁文件供失败后重试。工作流的 `changelog` 输入或 CLI 的 `--changelog` 可人工覆盖；没有配置 `changelog.git_url` 的适配项目仍使用旧的通用版本说明。
 
 正式送审时在本地判断更新日志的原文语种，只提交一个字段：中文填写 `version.changelogs.zh`，英文填写 `version.changelogs.en`。这是中英文轻量判断，混合文本按主体语种归类，排除固定 `Upstream` 标题、链接、代码和技术标识的干扰。原文不会被翻译或改写，缺少语种由应用商店服务端补翻；Action 不调用翻译接口，也不需要 TokenHub 密钥。

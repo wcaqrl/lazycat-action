@@ -2,6 +2,9 @@ version: 2
 
 project_name: lazycat-action
 
+release:
+  prerelease: auto
+
 builds:
   - id: lazycat-action
     main: ./cmd/lazycat-action

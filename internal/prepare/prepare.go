@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/wcaqrl/lazycat-action/internal/config"
+	"github.com/wcaqrl/lazycat-action/internal/githubapi"
 	"github.com/wcaqrl/lazycat-action/internal/platform"
 	"github.com/wcaqrl/lazycat-action/internal/source"
 )
@@ -150,6 +151,9 @@ func (runner Runner) Prepare(ctx context.Context, request Request) (Result, erro
 }
 
 func (runner Runner) run(ctx context.Context, directory string, command, environment []string, stdout, stderr io.Writer) error {
+	for key, value := range githubapi.FromContext(ctx).Environment() {
+		environment = append(environment, key+"="+value)
+	}
 	if runner.Run != nil {
 		return runner.Run(ctx, directory, command, environment, stdout, stderr)
 	}
@@ -170,6 +174,7 @@ func (runner Runner) run(ctx context.Context, directory string, command, environ
 
 func safeEnvironment(environment []string) []string {
 	blocked := map[string]struct{}{
+		githubapi.EnvURL: {}, githubapi.EnvSession: {},
 		"LZC_API_TOKEN": {}, "LZC_API_HOST": {}, "LZC_CLI_TOKEN": {},
 		"LAZYCAT_TOKEN": {}, "LAZYCAT_USERNAME": {}, "LAZYCAT_PASSWORD": {},
 		"LZC_APPSTORE_COS_DOMAIN": {},

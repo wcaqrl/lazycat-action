@@ -140,6 +140,13 @@ Store/registry/GitHub credentials are not inherited by this command. Use it to
 verify that a vendor API's public version matches the selected image before
 using that API's notes. Do not mix this mode with `git_url` or Git auth fields.
 
+Since v1.10.0, GitHub-based adapters can vendor
+[`clients/python/github_api.py`](clients/python/github_api.py) for authenticated
+release/tag reads. Custom commands receive a scoped, temporary loopback reader,
+never the actual GitHub token; the existing workflow token needs no new secret.
+Built-in GitHub Release reads share bounded rate-limit/transient-error retries.
+See the [metadata guide](docs/github-metadata.zh-CN.md) for scope and limits.
+
 Command preparation can use `{source_ref}@{source_revision}` as `output_image`
 to return the original, full, immutable reference after adapter upgrade tests;
 the existing `{revision}` placeholder still denotes a shortened revision.

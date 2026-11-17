@@ -28,6 +28,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Test vendorable Python GitHub reader
+        run: python3 -B -m unittest discover -s clients/python -v
+
       - name: Validate workflows
         run: >-
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.7
@@ -46,6 +49,9 @@ jobs:
 
       - name: Run bootstrap tests
         run: bash scripts/run-action_test.sh
+
+      - name: Test promotion script syntax
+        run: bash -n scripts/promote-v1.sh
 
       - name: Test optional LPK release publisher
         run: node --test scripts/publish-lpk-release.test.cjs

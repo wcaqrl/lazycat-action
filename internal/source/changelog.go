@@ -1,12 +1,11 @@
 package source
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
@@ -16,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/wcaqrl/lazycat-action/internal/config"
+	"github.com/wcaqrl/lazycat-action/internal/githubapi"
 )
 
 var commitIDPattern = regexp.MustCompile(`^[0-9a-fA-F]{40,64}$`)
@@ -158,6 +158,9 @@ func commandChangelog(ctx context.Context, settings config.Changelog, candidate,
 		"LAZYCAT_PREVIOUS_SOURCE_REVISION="+previous.Revision,
 		"LAZYCAT_PREVIOUS_SOURCE_TAG="+previous.Tag,
 	)
+	for key, value := range githubapi.FromContext(ctx).Environment() {
+		command.Env = append(command.Env, key+"="+value)
+	}
 	command.Stderr = os.Stderr
 	output, err := command.Output()
 	if err != nil {
@@ -178,35 +181,14 @@ func (runner GitRunner) githubReleaseChangelog(ctx context.Context, gitURL, tag,
 	if strings.TrimSpace(tag) == "" {
 		return "", errors.New("GitHub release changelog requires a release tag")
 	}
-	base := strings.TrimRight(strings.TrimSpace(runner.GitHubAPIBase), "/")
-	if base == "" {
-		base = "https://api.github.com"
-	}
-	endpoint := fmt.Sprintf("%s/repos/%s/%s/releases/tags/%s", base, url.PathEscape(owner), url.PathEscape(repository), url.PathEscape(tag))
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return "", err
-	}
-	request.Header.Set("Accept", "application/vnd.github+json")
-	request.Header.Set("User-Agent", "lazycat-action")
-	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	client := githubapi.Client{BaseURL: runner.GitHubAPIBase, HTTPClient: runner.HTTPClient}
 	if runner.Getenv != nil {
-		if token := strings.TrimSpace(runner.Getenv("GITHUB_TOKEN")); token != "" {
-			request.Header.Set("Authorization", "Bearer "+token)
-		}
+		client.Token = strings.TrimSpace(runner.Getenv("GITHUB_TOKEN"))
 	}
-	client := runner.HTTPClient
-	if client == nil {
-		client = http.DefaultClient
-	}
-	response, err := client.Do(request)
+	endpoint := fmt.Sprintf("/repos/%s/%s/releases/tags/%s", url.PathEscape(owner), url.PathEscape(repository), url.PathEscape(tag))
+	response, err := client.Get(ctx, endpoint)
 	if err != nil {
 		return "", fmt.Errorf("read GitHub release %q: %w", tag, err)
-	}
-	defer response.Body.Close()
-	if response.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return "", fmt.Errorf("read GitHub release %q: HTTP %d: %s", tag, response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var release struct {
 		TagName    string `json:"tag_name"`
@@ -214,7 +196,7 @@ func (runner GitRunner) githubReleaseChangelog(ctx context.Context, gitURL, tag,
 		Draft      bool   `json:"draft"`
 		Prerelease bool   `json:"prerelease"`
 	}
-	decoder := json.NewDecoder(io.LimitReader(response.Body, 1<<20))
+	decoder := json.NewDecoder(bytes.NewReader(response.Body))
 	if err := decoder.Decode(&release); err != nil {
 		return "", fmt.Errorf("decode GitHub release %q: %w", tag, err)
 	}

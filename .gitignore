@@ -38,3 +38,7 @@ go.work.sum
 # Editor/IDE
 .idea/
 # .vscode/
+
+# Vendored Python client tests
+__pycache__/
+*.pyc

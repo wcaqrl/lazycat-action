@@ -22,6 +22,7 @@ import (
 	"github.com/wcaqrl/lazycat-action/internal/config"
 	"github.com/wcaqrl/lazycat-action/internal/delivery"
 	"github.com/wcaqrl/lazycat-action/internal/diagnostic"
+	"github.com/wcaqrl/lazycat-action/internal/githubapi"
 	"github.com/wcaqrl/lazycat-action/internal/httpx"
 	"github.com/wcaqrl/lazycat-action/internal/imageflow"
 	"github.com/wcaqrl/lazycat-action/internal/imagemirror"
@@ -172,6 +173,7 @@ func (err *Error) Unwrap() error {
 }
 
 type Dependencies struct {
+	StartGitHubAPI       func(context.Context, config.Config) (*githubapi.Gateway, error)
 	Host                 platform.Host
 	ResultDir            string
 	Logger               *slog.Logger
@@ -225,6 +227,7 @@ func DefaultDependenciesWithEnv(host platform.Host, getenv func(string) string) 
 	publishFlow := publishflow.Default()
 	publishFlow.Logger = logger
 	return Dependencies{
+		StartGitHubAPI:    metadataGateway(getenv),
 		Host:              host,
 		Logger:            logger,
 		LoadConfig:        config.Load,
@@ -376,6 +379,16 @@ func Run(ctx context.Context, input Input, dependencies Dependencies) (Result, e
 	info, err := dependencies.Inspect(ctx, cfg.Project)
 	if err != nil {
 		return Result{}, actionError(CodeConfigInvalid, "unable to inspect LazyCat project", err)
+	}
+	if dependencies.StartGitHubAPI != nil && operation != OperationPublishOfficial {
+		gateway, startErr := dependencies.StartGitHubAPI(ctx, cfg)
+		if startErr != nil {
+			return Result{}, actionError(CodeConfigInvalid, "unable to configure GitHub metadata reader", startErr)
+		}
+		if gateway != nil {
+			defer gateway.Close()
+			ctx = githubapi.WithEndpoint(ctx, gateway.Endpoint())
+		}
 	}
 	if input.RetryRejected && (cfg.Version != 2 || operation != OperationCheck) {
 		return Result{}, actionError(CodeConfigInvalid, "retry-rejected requires a version 2 source check", nil)
