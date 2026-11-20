@@ -25,7 +25,7 @@
 
 适配仓库决定“监控谁、什么时候执行、如何定制和测试”，`lazycat-action` 负责按配置发现和比较版本、固定镜像、转存、打包、记录状态及送审。任务运行在适配仓库的 GitHub Runner 中，不是本工具后台常驻扫描所有应用。
 
-适配器调用 `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`。PAT 和源仓库/镜像仓库凭据配置在适配仓库的 Secrets 中；第一次先执行 `dry-run`，再通过实际应用测试后正式发布。
+适配器调用 `lazycat-adapter/lazycat-action/.github/workflows/lazycat.yml@v1`。PAT 和源仓库/镜像仓库凭据配置在适配仓库的 Secrets 中；第一次先执行 `dry-run`，再通过实际应用测试后正式发布。
 
 ## 更新判断
 

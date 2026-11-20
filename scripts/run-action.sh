@@ -40,7 +40,7 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "${tmp}"' EXIT
 
 archive="lazycat-action_linux_${arch}.tar.gz"
-release_repository="${GITHUB_ACTION_REPOSITORY:-wcaqrl/lazycat-action}"
+release_repository="${GITHUB_ACTION_REPOSITORY:-lazycat-adapter/lazycat-action}"
 base_url="${LAZYCAT_ACTION_RELEASE_BASE_URL:-https://github.com/${release_repository}/releases/download/${version}}"
 
 curl_args=(

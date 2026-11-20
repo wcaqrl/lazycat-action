@@ -52,13 +52,13 @@ func TestReusableWorkflowPinsItsActionAndPublisherToBootstrapVersion(t *testing.
 	found := 0
 	for _, job := range workflow.Jobs {
 		for _, step := range job.Steps {
-			if strings.HasPrefix(step.Uses, "wcaqrl/lazycat-action@") {
+			if strings.HasPrefix(step.Uses, "lazycat-adapter/lazycat-action@") {
 				found++
-				if step.Uses != "wcaqrl/lazycat-action@"+version {
+				if step.Uses != "lazycat-adapter/lazycat-action@"+version {
 					t.Errorf("Action %s does not match binary %s", step.Uses, version)
 				}
 			}
-			if step.With["repository"] == "wcaqrl/lazycat-action" && step.With["ref"] != version {
+			if step.With["repository"] == "lazycat-adapter/lazycat-action" && step.With["ref"] != version {
 				t.Errorf("publisher %s does not match binary %s", step.With["ref"], version)
 			}
 		}

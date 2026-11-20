@@ -24,5 +24,5 @@ license, port, service names and persistence mounts. The starter has no
 application-specific upgrade test: add and validate one for the actual app.
 Do not install a package that still contains the example image or icon.
 
-Documentation: [quick start](https://github.com/wcaqrl/lazycat-action/blob/main/docs/quickstart.zh-CN.md),
-[AI guide](https://github.com/wcaqrl/lazycat-action/blob/main/docs/ai-adapter-guide.md).
+Documentation: [quick start](https://github.com/lazycat-adapter/lazycat-action/blob/main/docs/quickstart.zh-CN.md),
+[AI guide](https://github.com/lazycat-adapter/lazycat-action/blob/main/docs/ai-adapter-guide.md).

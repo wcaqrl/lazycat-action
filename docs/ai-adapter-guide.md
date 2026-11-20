@@ -9,7 +9,7 @@
 只复制 `SKILL.md` 会丢失模板和参考资料。普通 AI 无需 Skill 安装功能，直接读取这些文件即可。
 
 ```text
-请使用 https://github.com/wcaqrl/lazycat-action，先读取其中
+请使用 https://github.com/lazycat-adapter/lazycat-action，先读取其中
 skills/lazycat-github-action/SKILL.md 及 references/adapter-guide.md，
 为下列项目创建或完善独立的懒猫应用适配仓库：
 

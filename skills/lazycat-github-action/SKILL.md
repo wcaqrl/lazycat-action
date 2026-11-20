@@ -7,14 +7,14 @@ description: Create or update a GitHub application adapter that monitors upstrea
 
 Keep the upstream project independent. Put `version: 2` configuration, LazyCat
 metadata, assets and application-specific scripts in the user's adapter
-repository. Reuse `wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1`;
+repository. Reuse `lazycat-adapter/lazycat-action/.github/workflows/lazycat.yml@v1`;
 forking the executor is normally unnecessary. Only the official store is supported.
 This workflow covers GitHub upstream repositories, GitHub adapters and GitHub Actions.
 
 ## Inspect and choose
 
 For an empty adapter, read the [AI guide](references/adapter-guide.md).
-The public [quick start](https://github.com/wcaqrl/lazycat-action/blob/main/docs/quickstart.zh-CN.md)
+The public [quick start](https://github.com/lazycat-adapter/lazycat-action/blob/main/docs/quickstart.zh-CN.md)
 covers human setup; the skill folder itself contains all essential instructions.
 Obtain the source URL, adapter location, package ID, app name, target platform,
 existing LPK if any, customization requirements and publication scope.

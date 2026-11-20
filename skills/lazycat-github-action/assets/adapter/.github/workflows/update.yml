@@ -35,7 +35,7 @@ concurrency:
 jobs:
   update:
     # Add application-specific prerequisite tests or build.prepare verification.
-    uses: wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1
+    uses: lazycat-adapter/lazycat-action/.github/workflows/lazycat.yml@v1
     with:
       config: lazycat-action.yml
       operation: auto

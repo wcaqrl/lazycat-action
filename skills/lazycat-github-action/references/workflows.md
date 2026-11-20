@@ -7,7 +7,7 @@ rather than an unguarded scheduler. The minimum call shape is:
 ```yaml
 jobs:
   lazycat:
-    uses: wcaqrl/lazycat-action/.github/workflows/lazycat.yml@v1
+    uses: lazycat-adapter/lazycat-action/.github/workflows/lazycat.yml@v1
     with:
       config: lazycat-action.yml
       operation: auto

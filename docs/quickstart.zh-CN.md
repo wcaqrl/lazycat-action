@@ -24,7 +24,7 @@
 先在你自己的 GitHub 账号创建并 clone 一个空的 `xxx-adapter`。再取得本工具的源码，复制模板中的**所有文件，包括隐藏目录**：
 
 ```bash
-git clone https://github.com/wcaqrl/lazycat-action.git /tmp/lazycat-action-guide
+git clone https://github.com/lazycat-adapter/lazycat-action.git /tmp/lazycat-action-guide
 cp -R /tmp/lazycat-action-guide/skills/lazycat-github-action/assets/adapter/. /你的路径/xxx-adapter/
 ```
 
